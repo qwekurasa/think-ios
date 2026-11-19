@@ -548,7 +548,7 @@ struct PremiumStarsScreen: View {
                                 .foregroundStyle(Theme.purple)
                             }
                             .padding(.vertical, 12)
-                            Divider().overlay(Theme.line)
+                            SketchRule(seed: 4).stroke(Theme.line, lineWidth: 1).frame(height: 2)
                         }
                     }
                 }
