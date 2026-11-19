@@ -133,7 +133,7 @@ base = {
 target = {
     "ASSETCATALOG_COMPILER_APPICON_NAME":"AppIcon",
     "CODE_SIGN_STYLE":"Automatic",
-    "CURRENT_PROJECT_VERSION":"8",
+    "CURRENT_PROJECT_VERSION":"9",
     "GENERATE_INFOPLIST_FILE":"YES",
     "INFOPLIST_KEY_CFBundleDisplayName":"Think",
     "INFOPLIST_KEY_LSApplicationCategoryType":'"public.app-category.productivity"',
@@ -143,7 +143,7 @@ target = {
     "INFOPLIST_KEY_NSMicrophoneUsageDescription":'"Think использует микрофон для записи идей голосом."',
     "INFOPLIST_KEY_NSSpeechRecognitionUsageDescription":'"Think превращает твою речь в текст идеи."',
     "IPHONEOS_DEPLOYMENT_TARGET":"17.0",
-    "MARKETING_VERSION":"2.0",
+    "MARKETING_VERSION":"2.1",
     "PRODUCT_BUNDLE_IDENTIFIER":"com.think.ideas.personal",
     "PRODUCT_NAME":'"$(TARGET_NAME)"',
     "SUPPORTED_PLATFORMS":'"iphoneos iphonesimulator"',
