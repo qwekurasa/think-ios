@@ -1,249 +1,150 @@
 import SwiftUI
 
-/// A procedural light sphere. Every highlight and ribbon is drawn in real time:
-/// no prerecorded movie, static render, or remote asset is used.
+/// A breathing, pencil-sketched thought orb. Every line is drawn live in Canvas;
+/// the imperfect double strokes intentionally keep the hand-made character.
 struct ThinkLivingOrb: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0,
                                 paused: scenePhase != .active)) { timeline in
-            let elapsed = timeline.date.timeIntervalSinceReferenceDate
-            Canvas(opaque: false, colorMode: .linear) { context, size in
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            Canvas(opaque: false, colorMode: .nonLinear) { context, size in
                 let center = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
-                let radius = min(size.width, size.height) * 0.405
-                let t = reduceMotion ? 0 : elapsed
-                let cycle = (t.truncatingRemainder(dividingBy: 10) / 10) * 2 * Double.pi
-                let pulse = 0.5 + 0.5 * cos(cycle)
-                let reveal = 0.12 + 0.88 * pow(pulse, 1.15)
+                let radius = min(size.width, size.height) * 0.34
+                let breath = 1 + 0.018 * sin(time * 0.72)
 
-                drawAtmosphere(in: &context, center: center, radius: radius, time: t)
-                drawSphere(in: &context, center: center, radius: radius, time: t, reveal: reveal)
-                drawRibbons(in: &context, center: center, radius: radius, time: t, reveal: reveal)
-                drawOrbitSparks(in: &context, center: center, radius: radius, time: t, reveal: reveal)
-                // No outline: the light is allowed to feather naturally into white.
+                // A faint graphite under-sketch gives the sphere a soft, unfinished edge.
+                for pass in 0..<3 {
+                    let scale = CGFloat(1 + Double(pass - 1) * 0.018) * CGFloat(breath)
+                    let path = looseLoop(center: center, radius: radius * scale,
+                                         time: time, seed: Double(pass) * 2.3)
+                    let alpha = [0.17, 0.72, 0.31][pass]
+                    let width = [2.3, 1.45, 0.85][pass]
+                    context.stroke(path, with: .color(graphite.opacity(alpha)),
+                                   style: StrokeStyle(lineWidth: width,
+                                                      lineCap: .round, lineJoin: .round))
+                }
+
+                // A few short, broken pencil strokes suggest volume without any gradient or fill.
+                drawHatching(in: &context, center: center, radius: radius, time: time)
+
+                // Two wandering orbital curves pass behind the little central spark.
+                for pass in 0..<2 {
+                    let orbit = orbitPath(center: center, radius: radius,
+                                          time: time, seed: Double(pass) * 2.6 + 1.1)
+                    context.stroke(orbit, with: .color(graphite.opacity(pass == 0 ? 0.34 : 0.16)),
+                                   style: StrokeStyle(lineWidth: pass == 0 ? 1.05 : 0.75,
+                                                      lineCap: .round, dash: pass == 0 ? [] : [2.2, 4.2]))
+                }
+
+                let sparkSize = radius * CGFloat(0.15 + 0.012 * sin(time * 1.2))
+                let spark = handStar(center: CGPoint(
+                    x: center.x + CGFloat(sin(time * 0.42)) * radius * 0.045,
+                    y: center.y + CGFloat(cos(time * 0.36)) * radius * 0.04
+                ), size: sparkSize, time: time)
+                context.stroke(spark, with: .color(graphite.opacity(0.78)),
+                               style: StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round))
+
+                // Tiny graphite flecks drift gently around the sphere.
+                for index in 0..<7 {
+                    let n = Double(index)
+                    let angle = n * 2.39996 + time * (index.isMultiple(of: 2) ? 0.10 : -0.075)
+                    let orbitRadius = radius * CGFloat(1.08 + 0.07 * sin(time * 0.31 + n))
+                    let point = CGPoint(
+                        x: center.x + CGFloat(cos(angle)) * orbitRadius,
+                        y: center.y + CGFloat(sin(angle)) * orbitRadius
+                    )
+                    let dotSize = CGFloat(1.2 + 0.9 * (0.5 + 0.5 * sin(time + n)))
+                    let dot = Path(ellipseIn: CGRect(x: point.x - dotSize / 2,
+                                                     y: point.y - dotSize / 2,
+                                                     width: dotSize, height: dotSize))
+                    context.fill(dot, with: .color(graphite.opacity(0.38 + 0.28 * sin(time * 0.8 + n))))
+                }
             }
-            .drawingGroup(opaque: false, colorMode: .linear)
             .accessibilityHidden(true)
         }
-        .accessibilityLabel("Светящийся шар Think с движущимися потоками света")
+        .accessibilityLabel("Нарисованный карандашом шар с движущимися искрами")
     }
 
-    private func drawAtmosphere(in context: inout GraphicsContext,
-                                center: CGPoint, radius: CGFloat, time: Double) {
-        let breathe = 1 + 0.035 * sin(time * 0.62)
-        let rect = CGRect(x: center.x - radius * 1.48 * breathe,
-                          y: center.y - radius * 1.48 * breathe,
-                          width: radius * 2.96 * breathe,
-                          height: radius * 2.96 * breathe)
-        context.fill(
-            Path(ellipseIn: rect),
-            with: .radialGradient(
-                Gradient(colors: [
-                    Color(red: 0.48, green: 0.24, blue: 0.92).opacity(0.25),
-                    Color(red: 0.22, green: 0.57, blue: 1.0).opacity(0.11),
-                    Color(red: 0.94, green: 0.34, blue: 0.78).opacity(0.08),
-                    .clear
-                ]),
-                center: center,
-                startRadius: radius * 0.25,
-                endRadius: radius * 1.48 * breathe
-            )
-        )
+    private var graphite: Color {
+        Color(red: 0.16, green: 0.16, blue: 0.17)
     }
 
-    private func drawSphere(in context: inout GraphicsContext,
-                            center: CGPoint, radius: CGFloat,
-                            time: Double, reveal: Double) {
-        // There is deliberately no solid circle or border.
-        // The core fades to fully transparent before reaching its outer bounds.
-        let fadeRadius = radius * 1.38
-        let softCore = Path(ellipseIn: CGRect(
-            x: center.x - fadeRadius, y: center.y - fadeRadius,
-            width: fadeRadius * 2, height: fadeRadius * 2
-        ))
-        let light = CGPoint(
-            x: center.x + CGFloat(sin(time * 0.24)) * radius * 0.10,
-            y: center.y - radius * 0.10
-        )
-        context.fill(
-            softCore,
-            with: .radialGradient(
-                Gradient(stops: [
-                    .init(color: Color(red: 0.09, green: 0.07, blue: 0.21).opacity(0.77 * reveal), location: 0),
-                    .init(color: Color(red: 0.14, green: 0.11, blue: 0.30).opacity(0.63 * reveal), location: 0.36),
-                    .init(color: Color(red: 0.30, green: 0.17, blue: 0.53).opacity(0.24 * reveal), location: 0.68),
-                    .init(color: Color(red: 0.47, green: 0.28, blue: 0.78).opacity(0.04 * reveal), location: 0.91),
-                    .init(color: .clear, location: 1)
-                ]),
-                center: light,
-                startRadius: 0,
-                endRadius: fadeRadius
-            )
-        )
-
-        // Soft, internal glass highlight without any hard ellipse cutoff.
-        let sheen = Path(ellipseIn: CGRect(
-            x: center.x - radius * 0.86,
-            y: center.y - radius * 0.95,
-            width: radius * 1.37,
-            height: radius * 0.62
-        ))
-        context.drawLayer { glow in
-            glow.addFilter(.blur(radius: radius * 0.19))
-            glow.fill(
-                sheen,
-                with: .linearGradient(
-                    Gradient(colors: [
-                        .white.opacity(0.27 * reveal),
-                        Color(red: 0.68, green: 0.79, blue: 1).opacity(0.10 * reveal),
-                        .clear
-                    ]),
-                    startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
-                    endPoint: CGPoint(x: center.x + radius * 0.45, y: center.y - radius * 0.10)
-                )
-            )
-        }
-    }
-
-    private func drawRibbons(in context: inout GraphicsContext,
-                             center: CGPoint, radius: CGFloat,
-                             time: Double, reveal: Double) {
-        let palette: [[Color]] = [
-            [
-                Color(red: 0.24, green: 0.75, blue: 1.0),
-                Color(red: 0.67, green: 0.43, blue: 1.0),
-                Color(red: 1.0, green: 0.43, blue: 0.79),
-                Color(red: 1.0, green: 0.84, blue: 0.98)
-            ],
-            [
-                Color(red: 0.94, green: 0.37, blue: 0.78),
-                Color(red: 0.58, green: 0.45, blue: 1.0),
-                Color(red: 0.28, green: 0.77, blue: 1.0),
-                Color(red: 0.88, green: 0.75, blue: 1.0)
-            ],
-            [
-                Color(red: 0.36, green: 0.62, blue: 1.0),
-                Color(red: 0.91, green: 0.45, blue: 0.94),
-                Color(red: 1.0, green: 0.68, blue: 0.84)
-            ]
-        ]
-
-        // No hard clipping to a circular silhouette: light blends into the background.
-        var clipped = context
-
-        for index in 0..<3 {
-            let phase = time * (0.42 + Double(index) * 0.075) + Double(index) * 2.05
-            let path = flowingRibbon(center: center, radius: radius * (0.78 - CGFloat(index) * 0.055),
-                                     phase: phase, index: index)
-            let colors = palette[index]
-            let gradient = GraphicsContext.Shading.linearGradient(
-                Gradient(colors: colors.map { $0.opacity(0.92 * reveal) }),
-                startPoint: CGPoint(x: center.x - radius, y: center.y - radius * 0.55),
-                endPoint: CGPoint(x: center.x + radius, y: center.y + radius * 0.62)
-            )
-
-            clipped.drawLayer { glow in
-                glow.addFilter(.blur(radius: radius * 0.105))
-                glow.stroke(path, with: gradient,
-                            style: StrokeStyle(lineWidth: radius * 0.145,
-                                               lineCap: .round, lineJoin: .round))
-            }
-            clipped.drawLayer { bloom in
-                bloom.addFilter(.blur(radius: radius * 0.035))
-                bloom.stroke(path, with: gradient,
-                             style: StrokeStyle(lineWidth: radius * 0.052,
-                                                lineCap: .round, lineJoin: .round))
-            }
-            clipped.stroke(
-                path,
-                with: .linearGradient(
-                    Gradient(colors: [
-                        .white.opacity(0.92 * reveal),
-                        colors[0].opacity(0.95 * reveal),
-                        colors[1].opacity(0.95 * reveal),
-                        colors[2].opacity(0.98 * reveal),
-                        .white.opacity(0.82 * reveal)
-                    ]),
-                    startPoint: CGPoint(x: center.x - radius, y: center.y - radius * 0.7),
-                    endPoint: CGPoint(x: center.x + radius, y: center.y + radius * 0.7)
-                ),
-                style: StrokeStyle(lineWidth: max(1.15, radius * 0.014),
-                                   lineCap: .round, lineJoin: .round)
-            )
-        }
-
-        // A moving bright knot makes the light paths feel connected and alive.
-        let knot = CGPoint(
-            x: center.x + CGFloat(cos(time * 0.48)) * radius * 0.13,
-            y: center.y + CGFloat(sin(time * 0.61)) * radius * 0.12
-        )
-        let knotRect = CGRect(x: knot.x - radius * 0.085, y: knot.y - radius * 0.085,
-                              width: radius * 0.17, height: radius * 0.17)
-        clipped.drawLayer { glow in
-            glow.addFilter(.blur(radius: radius * 0.10))
-            glow.fill(Path(ellipseIn: knotRect), with: .color(Color(red: 0.98, green: 0.65, blue: 1).opacity(0.95 * reveal)))
-        }
-        clipped.fill(Path(ellipseIn: knotRect.insetBy(dx: radius * 0.045, dy: radius * 0.045)),
-                     with: .color(.white.opacity(0.85 * reveal)))
-    }
-
-    private func flowingRibbon(center: CGPoint, radius: CGFloat,
-                               phase: Double, index: Int) -> Path {
+    private func looseLoop(center: CGPoint, radius: CGFloat,
+                           time: Double, seed: Double) -> Path {
         var path = Path()
-        let steps = 150
-        let direction = index == 1 ? -1.0 : 1.0
+        let steps = 144
         for step in 0...steps {
             let u = Double(step) / Double(steps)
             let angle = u * 2 * Double.pi
-            let waveA = sin(angle * 2 + phase * direction)
-            let waveB = cos(angle * 3 - phase * 0.72 + Double(index))
-            let waveC = sin(angle * 1.5 + phase * 0.48)
-            let radial = Double(radius) * (0.48 + 0.17 * waveA + 0.095 * waveB)
-            let x = center.x + CGFloat(cos(angle + phase * 0.16) * radial)
-            let y = center.y + CGFloat(sin(angle + phase * 0.16) * radial * (0.74 + 0.08 * waveC))
+            let broad = sin(angle * 3 + seed + time * 0.23) * 0.022
+            let fine = sin(angle * 9 + seed * 1.7 + time * 0.19) * 0.010
+            let hand = sin(angle * 17 + seed * 2.1) * 0.004
+            let r = Double(radius) * (1 + broad + fine + hand)
+            let x = center.x + CGFloat(cos(angle) * r) + CGFloat(sin(angle * 2 + seed)) * radius * 0.008
+            let y = center.y + CGFloat(sin(angle) * r * 0.985) + CGFloat(cos(angle * 3 + seed)) * radius * 0.008
             let point = CGPoint(x: x, y: y)
             if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
         }
-        path.closeSubpath()
         return path
     }
 
-    private func drawOrbitSparks(in context: inout GraphicsContext,
-                                 center: CGPoint, radius: CGFloat,
-                                 time: Double, reveal: Double) {
-        for index in 0..<9 {
-            let n = Double(index)
-            let angle = n * 2.39996 + time * (index.isMultiple(of: 2) ? 0.13 : -0.10)
-            let orbit = Double(radius) * (0.76 + 0.12 * sin(n * 1.8 + time * 0.2))
-            let point = CGPoint(x: center.x + CGFloat(cos(angle)) * CGFloat(orbit),
-                                y: center.y + CGFloat(sin(angle)) * CGFloat(orbit))
-            let starSize = CGFloat(2.0 + 2.2 * (0.5 + 0.5 * sin(time * 1.1 + n)))
-            let star = fourPointStar(at: point, size: starSize)
-            let tint = index.isMultiple(of: 2)
-                ? Color(red: 0.47, green: 0.75, blue: 1)
-                : Color(red: 1, green: 0.62, blue: 0.86)
-            context.drawLayer { glow in
-                glow.addFilter(.blur(radius: 5))
-                glow.fill(star, with: .color(tint.opacity(0.78 * reveal)))
-            }
-            context.fill(star, with: .color(.white.opacity(0.9 * reveal)))
+    private func orbitPath(center: CGPoint, radius: CGFloat,
+                           time: Double, seed: Double) -> Path {
+        var path = Path()
+        let steps = 100
+        for step in 0...steps {
+            let u = Double(step) / Double(steps)
+            let angle = u * 2 * Double.pi + time * 0.12 + seed
+            let radial = Double(radius) * (0.72 + 0.08 * sin(angle * 2.0 + time * 0.28))
+            let point = CGPoint(
+                x: center.x + CGFloat(cos(angle) * radial),
+                y: center.y + CGFloat(sin(angle) * radial * 0.73)
+            )
+            if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
+    }
+
+    private func drawHatching(in context: inout GraphicsContext,
+                              center: CGPoint, radius: CGFloat, time: Double) {
+        for index in 0..<13 {
+            let n = CGFloat(index)
+            let x = center.x - radius * 0.60 + n * radius * 0.055
+            let y = center.y - radius * 0.52 + n * radius * 0.014
+            let length = radius * (0.12 + 0.035 * sin(Double(index) * 0.9))
+            var stroke = Path()
+            stroke.move(to: CGPoint(x: x, y: y))
+            stroke.addLine(to: CGPoint(x: x + length, y: y - length * 0.20))
+            context.stroke(stroke, with: .color(graphite.opacity(0.22)),
+                           style: StrokeStyle(lineWidth: 0.7, lineCap: .round))
         }
     }
 
-    private func fourPointStar(at center: CGPoint, size: CGFloat) -> Path {
+    private func handStar(center: CGPoint, size: CGFloat, time: Double) -> Path {
         var path = Path()
-        path.move(to: CGPoint(x: center.x, y: center.y - size))
-        path.addQuadCurve(to: CGPoint(x: center.x + size, y: center.y),
-                          control: CGPoint(x: center.x + size * 0.17, y: center.y - size * 0.17))
-        path.addQuadCurve(to: CGPoint(x: center.x, y: center.y + size),
-                          control: CGPoint(x: center.x + size * 0.17, y: center.y + size * 0.17))
-        path.addQuadCurve(to: CGPoint(x: center.x - size, y: center.y),
-                          control: CGPoint(x: center.x - size * 0.17, y: center.y + size * 0.17))
-        path.addQuadCurve(to: CGPoint(x: center.x, y: center.y - size),
-                          control: CGPoint(x: center.x - size * 0.17, y: center.y - size * 0.17))
-        path.closeSubpath()
+        let wobble = CGFloat(0.035 * sin(time * 0.8))
+        let points: [CGPoint] = [
+            CGPoint(x: center.x, y: center.y - size),
+            CGPoint(x: center.x + size * 0.24, y: center.y - size * 0.22),
+            CGPoint(x: center.x + size, y: center.y + wobble),
+            CGPoint(x: center.x + size * 0.22, y: center.y + size * 0.23),
+            CGPoint(x: center.x + wobble, y: center.y + size),
+            CGPoint(x: center.x - size * 0.22, y: center.y + size * 0.22),
+            CGPoint(x: center.x - size, y: center.y),
+            CGPoint(x: center.x - size * 0.22, y: center.y - size * 0.23)
+        ]
+        path.move(to: points[0])
+        for index in 1..<points.count {
+            let p = points[index]
+            let previous = points[index - 1]
+            let mid = CGPoint(x: (p.x + previous.x) * 0.5,
+                              y: (p.y + previous.y) * 0.5)
+            path.addQuadCurve(to: mid, control: previous)
+        }
+        path.addQuadCurve(to: points[0], control: points[points.count - 1])
         return path
     }
 }
