@@ -26,17 +26,17 @@ struct IdeaDetailScreen: View {
                     Button { editing = true } label: {
                         SketchLabel("Редактировать идею", symbol: "pencil")
                             .frame(maxWidth: .infinity).padding(.vertical, 17)
-                            .background(Theme.panel, in: Capsule())
+                            .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
                     }
                     Button { qr = true } label: {
                         SketchLabel("Поделиться QR-кодом", symbol: "qrcode")
                             .frame(maxWidth: .infinity).padding(.vertical, 18)
-                            .background(Theme.yellow, in: Capsule())
+                            .background(Theme.yellow, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
                     }
                     ShareLink(item: current.text) {
                         SketchLabel("Поделиться текстом", symbol: "square.and.arrow.up")
                             .frame(maxWidth: .infinity).padding(.vertical, 17)
-                            .background(Theme.panel, in: Capsule())
+                            .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
                     }
                 }
                 .font(.custom("Noteworthy-Light", size: 16))
