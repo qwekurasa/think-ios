@@ -234,9 +234,9 @@ struct PremiumTextEditor: View {
                         .font(.custom("Noteworthy-Light", size: 33))
                         .foregroundStyle(Theme.muted.opacity(0.70))
                         .tracking(-1)
-                    Rectangle()
-                        .fill(Theme.purple.opacity(focused ? 0.55 : 0.16))
-                        .frame(width: focused ? 48 : 20, height: 2)
+                    SketchRule(seed: 8, amplitude: 1.0)
+                        .stroke(Theme.ink.opacity(focused ? 0.72 : 0.25), lineWidth: 1.1)
+                        .frame(width: focused ? 48 : 20, height: 3)
                         .animation(.easeInOut(duration: 0.33), value: focused)
                     ZStack(alignment: .topLeading) {
                         if value.isEmpty {
