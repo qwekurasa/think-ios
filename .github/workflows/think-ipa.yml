@@ -1,0 +1,66 @@
+name: Think iOS IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Think/**"
+      - "Think.xcodeproj/**"
+      - "make_project.py"
+      - ".github/workflows/think-ipa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Generate iOS project and app icon
+        run: |
+          set -euo pipefail
+          python3 make_project.py
+          plutil -lint Think.xcodeproj/project.pbxproj
+          xcodebuild -version
+          xcodebuild -list -project Think.xcodeproj
+
+      - name: Compile Think for physical iPhones
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Think.xcodeproj \
+            -scheme Think \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/ThinkBuild" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package Sideloadly-compatible unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/ThinkBuild/Build/Products/Release-iphoneos/Think.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/ThinkPackage/Payload"
+          ditto "$APP" "$RUNNER_TEMP/ThinkPackage/Payload/Think.app"
+          (cd "$RUNNER_TEMP/ThinkPackage" && zip -qry "$GITHUB_WORKSPACE/Think.ipa" Payload)
+          unzip -t "$GITHUB_WORKSPACE/Think.ipa" >/dev/null
+          ls -lh "$GITHUB_WORKSPACE/Think.ipa"
+
+      - name: Upload Think IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Think-IPA-Sideloadly
+          path: Think.ipa
+          retention-days: 30
+          if-no-files-found: error
