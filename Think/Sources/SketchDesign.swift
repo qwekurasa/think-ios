@@ -18,29 +18,65 @@ struct SketchRoundedRectangle: Shape {
     var seed: CGFloat = 0
 
     func path(in rect: CGRect) -> Path {
-        let inset = max(1, wobble)
-        let bounds = rect.insetBy(dx: inset, dy: inset)
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let rx = max(1, bounds.width / 2)
-        let ry = max(1, bounds.height / 2)
-        let exponent = max(2.5, min(4.2, 2.15 + max(bounds.width, bounds.height) / max(12, cornerRadius) * 0.035))
-        let count = 96
+        let bounds = rect.insetBy(dx: max(1, wobble), dy: max(1, wobble))
+        let corner = min(cornerRadius, bounds.width * 0.30, bounds.height * 0.30)
+        let wave = max(0.25, wobble * 0.52)
         var path = Path()
-        for index in 0..<count {
-            let angle = Double(index) * 2 * Double.pi / Double(count)
-            let c = cos(angle)
-            let s = sin(angle)
-            let baseX = (c < 0 ? -1.0 : 1.0) * pow(abs(c), 2 / Double(exponent)) * Double(rx)
-            let baseY = (s < 0 ? -1.0 : 1.0) * pow(abs(s), 2 / Double(exponent)) * Double(ry)
-            let drift = Double(wobble) * (
-                0.43 * sin(Double(index) * 1.71 + Double(seed)) +
-                0.22 * sin(Double(index) * 0.63 + Double(seed) * 2.1)
+        var count = 0
+
+        func add(_ x: CGFloat, _ y: CGFloat, _ nx: CGFloat, _ ny: CGFloat) {
+            let jitter = wave * CGFloat(
+                0.52 * sin(Double(count) * 1.17 + Double(seed)) +
+                0.28 * sin(Double(count) * 0.39 + Double(seed) * 2.31)
             )
-            let point = CGPoint(
-                x: center.x + CGFloat(baseX) + CGFloat(c) * CGFloat(drift),
-                y: center.y + CGFloat(baseY) + CGFloat(s) * CGFloat(drift)
-            )
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            let point = CGPoint(x: x + nx * jitter, y: y + ny * jitter)
+            if count == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            count += 1
+        }
+
+        let steps = 19
+        let arcs = 11
+        for i in 0...steps {
+            let u = CGFloat(i) / CGFloat(steps)
+            add(bounds.minX + corner + (bounds.width - 2 * corner) * u,
+                bounds.minY, 0, -1)
+        }
+        for i in 1...arcs {
+            let angle = (-Double.pi / 2) + Double(i) / Double(arcs) * (Double.pi / 2)
+            add(bounds.maxX - corner + cos(angle) * corner,
+                bounds.minY + corner + sin(angle) * corner,
+                CGFloat(cos(angle)), CGFloat(sin(angle)))
+        }
+        for i in 1...steps {
+            let u = CGFloat(i) / CGFloat(steps)
+            add(bounds.maxX, bounds.minY + corner + (bounds.height - 2 * corner) * u, 1, 0)
+        }
+        for i in 1...arcs {
+            let angle = Double(i) / Double(arcs) * (Double.pi / 2)
+            add(bounds.maxX - corner + cos(angle) * corner,
+                bounds.maxY - corner + sin(angle) * corner,
+                CGFloat(cos(angle)), CGFloat(sin(angle)))
+        }
+        for i in 1...steps {
+            let u = CGFloat(i) / CGFloat(steps)
+            add(bounds.maxX - corner - (bounds.width - 2 * corner) * u,
+                bounds.maxY, 0, 1)
+        }
+        for i in 1...arcs {
+            let angle = Double.pi / 2 + Double(i) / Double(arcs) * (Double.pi / 2)
+            add(bounds.minX + corner + cos(angle) * corner,
+                bounds.maxY - corner + sin(angle) * corner,
+                CGFloat(cos(angle)), CGFloat(sin(angle)))
+        }
+        for i in 1...steps {
+            let u = CGFloat(i) / CGFloat(steps)
+            add(bounds.minX, bounds.maxY - corner - (bounds.height - 2 * corner) * u, -1, 0)
+        }
+        for i in 1...arcs {
+            let angle = Double.pi + Double(i) / Double(arcs) * (Double.pi / 2)
+            add(bounds.minX + corner + cos(angle) * corner,
+                bounds.minY + corner + sin(angle) * corner,
+                CGFloat(cos(angle)), CGFloat(sin(angle)))
         }
         path.closeSubpath()
         return path
@@ -112,37 +148,46 @@ struct SketchGlyph: View {
             }
             switch name {
             case "house":
-                path.move(to: point(0.10, 0.47))
-                path.addQuadCurve(to: point(0.50, 0.10), control: point(0.28, 0.24))
-                path.addQuadCurve(to: point(0.91, 0.48), control: point(0.75, 0.24))
-                path.move(to: point(0.22, 0.40))
-                path.addLine(to: point(0.23, 0.91))
-                path.addQuadCurve(to: point(0.76, 0.90), control: point(0.49, 0.94))
-                path.addLine(to: point(0.78, 0.40))
-                path.move(to: point(0.43, 0.91))
-                path.addLine(to: point(0.43, 0.64))
-                path.addQuadCurve(to: point(0.59, 0.64), control: point(0.50, 0.60))
-                path.addLine(to: point(0.59, 0.91))
+                // Loose pencil roof and slightly crooked walls, not a stock house glyph.
+                path.move(to: point(0.09, 0.51))
+                path.addCurve(to: point(0.49, 0.11), control1: point(0.23, 0.36), control2: point(0.40, 0.13))
+                path.addCurve(to: point(0.91, 0.49), control1: point(0.56, 0.11), control2: point(0.80, 0.33))
+                path.move(to: point(0.24, 0.42))
+                path.addQuadCurve(to: point(0.21, 0.89), control: point(0.23, 0.69))
+                path.addQuadCurve(to: point(0.79, 0.88), control: point(0.47, 0.92))
+                path.addQuadCurve(to: point(0.77, 0.41), control: point(0.80, 0.65))
+                path.move(to: point(0.43, 0.90))
+                path.addQuadCurve(to: point(0.41, 0.64), control: point(0.42, 0.75))
+                path.addQuadCurve(to: point(0.61, 0.63), control: point(0.52, 0.56))
+                path.addLine(to: point(0.60, 0.89))
+                path.move(to: point(0.18, 0.50))
+                path.addQuadCurve(to: point(0.50, 0.18), control: point(0.32, 0.31))
             case "square.stack":
-                path.move(to: point(0.20, 0.22))
-                path.addQuadCurve(to: point(0.78, 0.20), control: point(0.52, 0.18))
-                path.addLine(to: point(0.80, 0.82))
-                path.addQuadCurve(to: point(0.19, 0.84), control: point(0.48, 0.88))
-                path.closeSubpath()
-                path.move(to: point(0.28, 0.12))
-                path.addQuadCurve(to: point(0.70, 0.11), control: point(0.48, 0.08))
-                path.move(to: point(0.31, 0.91))
-                path.addQuadCurve(to: point(0.70, 0.90), control: point(0.50, 0.94))
+                // Torn notebook with an uneven binding and crooked inner lines.
+                path.move(to: point(0.27, 0.17))
+                path.addCurve(to: point(0.77, 0.20), control1: point(0.40, 0.13), control2: point(0.62, 0.14))
+                path.addQuadCurve(to: point(0.79, 0.85), control: point(0.82, 0.52))
+                path.addCurve(to: point(0.24, 0.87), control1: point(0.61, 0.88), control2: point(0.41, 0.89))
+                path.addQuadCurve(to: point(0.27, 0.17), control: point(0.20, 0.52))
+                path.move(to: point(0.18, 0.27))
+                path.addQuadCurve(to: point(0.19, 0.79), control: point(0.15, 0.49))
+                path.move(to: point(0.33, 0.40))
+                path.addQuadCurve(to: point(0.66, 0.38), control: point(0.50, 0.35))
+                path.move(to: point(0.34, 0.54))
+                path.addQuadCurve(to: point(0.69, 0.56), control: point(0.49, 0.59))
+                path.move(to: point(0.36, 0.69))
+                path.addQuadCurve(to: point(0.58, 0.68), control: point(0.45, 0.66))
             case "sparkle":
-                path.move(to: point(0.50, 0.06))
-                path.addQuadCurve(to: point(0.61, 0.40), control: point(0.54, 0.29))
-                path.addQuadCurve(to: point(0.94, 0.51), control: point(0.77, 0.46))
-                path.addQuadCurve(to: point(0.60, 0.62), control: point(0.76, 0.57))
-                path.addQuadCurve(to: point(0.49, 0.95), control: point(0.55, 0.77))
-                path.addQuadCurve(to: point(0.39, 0.61), control: point(0.44, 0.77))
-                path.addQuadCurve(to: point(0.06, 0.50), control: point(0.22, 0.56))
-                path.addQuadCurve(to: point(0.40, 0.39), control: point(0.22, 0.44))
-                path.addQuadCurve(to: point(0.50, 0.06), control: point(0.45, 0.23))
+                // A slightly lopsided four-tip star, as if drawn in one motion.
+                path.move(to: point(0.49, 0.05))
+                path.addQuadCurve(to: point(0.61, 0.38), control: point(0.57, 0.29))
+                path.addQuadCurve(to: point(0.96, 0.48), control: point(0.76, 0.42))
+                path.addQuadCurve(to: point(0.60, 0.63), control: point(0.76, 0.58))
+                path.addQuadCurve(to: point(0.50, 0.96), control: point(0.54, 0.78))
+                path.addQuadCurve(to: point(0.38, 0.61), control: point(0.43, 0.77))
+                path.addQuadCurve(to: point(0.04, 0.52), control: point(0.21, 0.57))
+                path.addQuadCurve(to: point(0.39, 0.39), control: point(0.21, 0.44))
+                path.addQuadCurve(to: point(0.49, 0.05), control: point(0.44, 0.25))
             case "plus":
                 line((0.50, 0.13), (0.50, 0.87))
                 line((0.13, 0.50), (0.87, 0.50))
@@ -273,11 +318,9 @@ struct SketchGlyph: View {
                 path.addLine(to: point(0.90, 0.50))
             }
 
-            // A second, faint pencil pass gives every icon a human-drawn edge.
-            context.stroke(path, with: .color(color.opacity(0.34)),
-                           style: StrokeStyle(lineWidth: lineWidth * 1.9, lineCap: .round, lineJoin: .round))
+            // One confident ink stroke avoids the old doubled/outlined effect.
             context.stroke(path, with: .color(color),
-                           style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+                           style: StrokeStyle(lineWidth: lineWidth * 1.08, lineCap: .round, lineJoin: .round))
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
