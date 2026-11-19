@@ -13,6 +13,7 @@ enum SketchFont {
 /// superellipse instead of a mathematically perfect system shape.
 struct SketchRoundedRectangle: Shape {
     var cornerRadius: CGFloat = 16
+    var style: RoundedCornerStyle = .continuous
     var wobble: CGFloat = 0.85
     var seed: CGFloat = 0
 
@@ -39,6 +40,33 @@ struct SketchRoundedRectangle: Shape {
                 x: center.x + CGFloat(baseX) + CGFloat(c) * CGFloat(drift),
                 y: center.y + CGFloat(baseY) + CGFloat(s) * CGFloat(drift)
             )
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+
+struct SketchOval: Shape {
+    var wobble: CGFloat = 1.0
+    var seed: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let rx = rect.width * 0.5
+        let ry = rect.height * 0.5
+        var path = Path()
+        let count = 88
+        for index in 0..<count {
+            let angle = Double(index) * 2 * Double.pi / Double(count)
+            let drift = Double(wobble) * (
+                0.48 * sin(Double(index) * 1.91 + Double(seed)) +
+                0.20 * cos(Double(index) * 0.77 + Double(seed) * 1.7)
+            )
+            let x = center.x + CGFloat(cos(angle) * (Double(rx) + drift))
+            let y = center.y + CGFloat(sin(angle) * (Double(ry) + drift))
+            let point = CGPoint(x: x, y: y)
             if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
         }
         path.closeSubpath()
