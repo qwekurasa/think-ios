@@ -16,10 +16,10 @@ struct IdeaDetailScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 23) {
                     Text(current.createdAt, format: .dateTime.day().month(.wide).year())
-                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .font(.custom("Noteworthy-Light", size: 13)).foregroundStyle(Theme.muted)
                         .padding(.top, 25)
                     Text(current.text)
-                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .font(.custom("Noteworthy-Light", size: 24))
                         .foregroundStyle(Theme.ink)
                         .lineSpacing(7).textSelection(.enabled)
                     Rectangle().fill(Theme.line).frame(height: 1)
@@ -39,7 +39,7 @@ struct IdeaDetailScreen: View {
                             .background(Theme.panel, in: Capsule())
                     }
                 }
-                .font(.system(size: 16, weight: .medium))
+                .font(.custom("Noteworthy-Light", size: 16))
                 .foregroundStyle(Theme.ink)
                 .padding(.horizontal, 27)
             }
