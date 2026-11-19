@@ -513,7 +513,7 @@ struct PremiumStarsScreen: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("QR-коды бесплатны")
                                 .font(.custom("Noteworthy-Light", size: 15))
-                            Text("Пурпурное оформление доступно каждому")
+                            Text("QR-коды бесплатны для всех")
                                 .font(.custom("Noteworthy-Light", size: 12))
                                 .foregroundStyle(Theme.muted)
                         }
