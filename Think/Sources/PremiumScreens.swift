@@ -581,7 +581,7 @@ struct PremiumStarsScreen: View {
 
     private func rule(_ title: String, _ amount: String, _ symbol: String) -> some View {
         HStack {
-            Image(systemName: symbol).foregroundStyle(Theme.purple).frame(width: 30)
+            SketchGlyph(name: symbol, size: 20).frame(width: 30)
             Text(title).font(.custom("Noteworthy-Light", size: 14))
             Spacer()
             Text(amount).font(.custom("Noteworthy-Light", size: 14)).foregroundStyle(Theme.muted)
@@ -654,7 +654,7 @@ struct PremiumIdeaDetail: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
+                        SketchGlyph(name: "chevron.left", size: 19)
                     }
                     .foregroundStyle(Theme.ink)
                 }
