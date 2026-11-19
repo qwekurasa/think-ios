@@ -1,150 +1,120 @@
 import SwiftUI
 
-/// A breathing, pencil-sketched thought orb. Every line is drawn live in Canvas;
-/// the imperfect double strokes intentionally keep the hand-made character.
+/// The original hand-drawn Think mark: a solid five-point ink star,
+/// surrounded by a lively, tangled cloud of elliptical pen strokes.
+/// Each stroke has its own slowly drifting orbit: no solid sphere,
+/// no perfect outline and no color or glow.
 struct ThinkLivingOrb: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0,
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0,
                                 paused: scenePhase != .active)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas(opaque: false, colorMode: .nonLinear) { context, size in
-                let center = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
-                let radius = min(size.width, size.height) * 0.34
-                let breath = 1 + 0.018 * sin(time * 0.72)
+                let side = min(size.width, size.height)
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let rx = side * 0.385
+                let ry = side * 0.265
 
-                // A faint graphite under-sketch gives the sphere a soft, unfinished edge.
-                for pass in 0..<3 {
-                    let scale = CGFloat(1 + Double(pass - 1) * 0.018) * CGFloat(breath)
-                    let path = looseLoop(center: center, radius: radius * scale,
-                                         time: time, seed: Double(pass) * 2.3)
-                    let alpha = [0.17, 0.72, 0.31][pass]
-                    let width = [2.3, 1.45, 0.85][pass]
-                    context.stroke(path, with: .color(graphite.opacity(alpha)),
-                                   style: StrokeStyle(lineWidth: CGFloat(width),
+                // The drawing is a tangle of individual, imperfect strokes.
+                // Their angular phases advance at different speeds, giving
+                // the impression of loose ink orbiting a fixed thought.
+                for index in 0..<29 {
+                    let n = Double(index)
+                    let path = roamingStroke(center: center, rx: rx, ry: ry,
+                                             index: index, time: time)
+                    let opacity = (0.42 + 0.38 * (0.5 + 0.5 * sin(n * 3.71)))
+                    let width: CGFloat = index.isMultiple(of: 5) ? 2.1 :
+                                         (index.isMultiple(of: 3) ? 1.55 : 0.85)
+                    context.stroke(path, with: .color(Color.black.opacity(opacity)),
+                                   style: StrokeStyle(lineWidth: width,
                                                       lineCap: .round, lineJoin: .round))
                 }
 
-                // A few short, broken pencil strokes suggest volume without any gradient or fill.
-                drawHatching(in: &context, center: center, radius: radius, time: time)
-
-                // Two wandering orbital curves pass behind the little central spark.
-                for pass in 0..<2 {
-                    let orbit = orbitPath(center: center, radius: radius,
-                                          time: time, seed: Double(pass) * 2.6 + 1.1)
-                    context.stroke(orbit, with: .color(graphite.opacity(pass == 0 ? 0.34 : 0.16)),
-                                   style: StrokeStyle(lineWidth: pass == 0 ? 1.05 : 0.75,
-                                                      lineCap: .round, dash: pass == 0 ? [] : [2.2, 4.2]))
+                // A few purposeful long loose ends keep it human, like ink
+                // that runs beyond the silhouette in the user's sketch.
+                for index in 0..<5 {
+                    let path = strayLine(center: center, rx: rx, ry: ry,
+                                         index: index, time: time)
+                    context.stroke(path, with: .color(.black.opacity(index.isMultiple(of:2) ? 0.72 : 0.47)),
+                                   style: StrokeStyle(lineWidth: index.isMultiple(of:2) ? 1.45 : 0.9,
+                                                      lineCap: .round))
                 }
 
-                let sparkSize = radius * CGFloat(0.15 + 0.012 * sin(time * 1.2))
-                let spark = handStar(center: CGPoint(
-                    x: center.x + CGFloat(sin(time * 0.42)) * radius * 0.045,
-                    y: center.y + CGFloat(cos(time * 0.36)) * radius * 0.04
-                ), size: sparkSize, time: time)
-                context.stroke(spark, with: .color(graphite.opacity(0.78)),
-                               style: StrokeStyle(lineWidth: 1.55, lineCap: .round, lineJoin: .round))
-
-                // Tiny graphite flecks drift gently around the sphere.
-                for index in 0..<7 {
-                    let n = Double(index)
-                    let angle = n * 2.39996 + time * (index.isMultiple(of: 2) ? 0.10 : -0.075)
-                    let orbitRadius = radius * CGFloat(1.08 + 0.07 * sin(time * 0.31 + n))
-                    let point = CGPoint(
-                        x: center.x + CGFloat(cos(angle)) * orbitRadius,
-                        y: center.y + CGFloat(sin(angle)) * orbitRadius
-                    )
-                    let dotSize = CGFloat(1.2 + 0.9 * (0.5 + 0.5 * sin(time + n)))
-                    let dot = Path(ellipseIn: CGRect(x: point.x - dotSize / 2,
-                                                     y: point.y - dotSize / 2,
-                                                     width: dotSize, height: dotSize))
-                    context.fill(dot, with: .color(graphite.opacity(0.38 + 0.28 * sin(time * 0.8 + n))))
-                }
+                let starCenter = CGPoint(
+                    x: center.x + CGFloat(sin(time * 0.31)) * side * 0.008,
+                    y: center.y + CGFloat(cos(time * 0.24)) * side * 0.007
+                )
+                let star = inkStar(center: starCenter, radius: side * 0.095)
+                context.fill(star, with: .color(Color(red: 0.095, green: 0.095, blue: 0.10)))
             }
             .accessibilityHidden(true)
         }
-        .accessibilityLabel("Нарисованный карандашом шар с движущимися искрами")
+        .accessibilityLabel("Звезда, вокруг которой хаотично движутся нарисованные ручкой линии")
     }
 
-    private var graphite: Color {
-        Color(red: 0.16, green: 0.16, blue: 0.17)
-    }
+    private func roamingStroke(center: CGPoint, rx: CGFloat, ry: CGFloat,
+                               index: Int, time: Double) -> Path {
+        let n = Double(index)
+        let turns = 0.76 + 0.18 * sin(n * 1.11)
+        let start = n * 2.39996 + time * (index.isMultiple(of: 2) ? 0.065 : -0.044)
+        let tilt = -0.32 + 0.16 * sin(n * 0.81 + time * 0.17)
+        let stretch = 0.67 + 0.50 * (0.5 + 0.5 * cos(n * 2.15))
+        let rX = Double(rx) * stretch
+        let rY = Double(ry) * (0.76 + 0.48 * (0.5 + 0.5 * sin(n * 1.62)))
+        let offsetX = Double(rx) * 0.11 * sin(n * 1.88 + time * 0.21)
+        let offsetY = Double(ry) * 0.11 * cos(n * 2.13 - time * 0.19)
 
-    private func looseLoop(center: CGPoint, radius: CGFloat,
-                           time: Double, seed: Double) -> Path {
         var path = Path()
-        let steps = 144
+        let steps = 70
         for step in 0...steps {
             let u = Double(step) / Double(steps)
-            let angle = u * 2 * Double.pi
-            let broad = sin(angle * 3 + seed + time * 0.23) * 0.022
-            let fine = sin(angle * 9 + seed * 1.7 + time * 0.19) * 0.010
-            let hand = sin(angle * 17 + seed * 2.1) * 0.004
-            let r = Double(radius) * (1 + broad + fine + hand)
-            let x = center.x + CGFloat(cos(angle) * r) + CGFloat(sin(angle * 2 + seed)) * radius * 0.008
-            let y = center.y + CGFloat(sin(angle) * r * 0.985) + CGFloat(cos(angle * 3 + seed)) * radius * 0.008
-            let point = CGPoint(x: x, y: y)
+            let angle = start + 2 * Double.pi * turns * u
+            let wander = 1 + 0.095 * sin(angle * 3.1 + n * 1.77 + time * 0.14)
+                           + 0.036 * sin(angle * 8.0 + n * 0.93)
+            let rawX = cos(angle) * rX * wander
+            let rawY = sin(angle) * rY * wander
+            let x = rawX * cos(tilt) - rawY * sin(tilt)
+            let y = rawX * sin(tilt) + rawY * cos(tilt)
+            let point = CGPoint(x: center.x + CGFloat(x + offsetX),
+                                y: center.y + CGFloat(y + offsetY))
             if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
         }
         return path
     }
 
-    private func orbitPath(center: CGPoint, radius: CGFloat,
-                           time: Double, seed: Double) -> Path {
+    private func strayLine(center: CGPoint, rx: CGFloat, ry: CGFloat,
+                           index: Int, time: Double) -> Path {
+        let n = Double(index)
+        let sway = 0.08 * sin(time * 0.27 + n)
+        let side = index.isMultiple(of: 2) ? -1.0 : 1.0
+        let from = CGPoint(x: center.x + CGFloat(side * Double(rx) * (0.37 + sway)),
+                           y: center.y + CGFloat(Double(ry) * (0.55 * sin(n * 1.3))))
+        let to = CGPoint(x: center.x - CGFloat(side * Double(rx) * (1.05 + sway)),
+                         y: center.y + CGFloat(Double(ry) * (0.82 * cos(n * 1.2))))
         var path = Path()
-        let steps = 100
-        for step in 0...steps {
-            let u = Double(step) / Double(steps)
-            let angle = u * 2 * Double.pi + time * 0.12 + seed
-            let radial = Double(radius) * (0.72 + 0.08 * sin(angle * 2.0 + time * 0.28))
-            let point = CGPoint(
-                x: center.x + CGFloat(cos(angle) * radial),
-                y: center.y + CGFloat(sin(angle) * radial * 0.73)
-            )
-            if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
+        path.move(to: from)
+        path.addCurve(to: to,
+                      control1: CGPoint(x: center.x + CGFloat(side * Double(rx) * 1.15),
+                                       y: center.y - ry * CGFloat(0.88 + 0.07 * sin(time * 0.3 + n))),
+                      control2: CGPoint(x: center.x - CGFloat(side * Double(rx) * 0.5),
+                                       y: center.y + ry * CGFloat(1.4 + 0.05 * cos(time * 0.2 + n))))
         return path
     }
 
-    private func drawHatching(in context: inout GraphicsContext,
-                              center: CGPoint, radius: CGFloat, time: Double) {
-        for index in 0..<13 {
-            let n = CGFloat(index)
-            let x = center.x - radius * 0.60 + n * radius * 0.055
-            let y = center.y - radius * 0.52 + n * radius * 0.014
-            let length = radius * CGFloat(0.12 + 0.035 * sin(Double(index) * 0.9))
-            var stroke = Path()
-            stroke.move(to: CGPoint(x: x, y: y))
-            stroke.addLine(to: CGPoint(x: x + length, y: y - length * 0.20))
-            context.stroke(stroke, with: .color(graphite.opacity(0.22)),
-                           style: StrokeStyle(lineWidth: 0.7, lineCap: .round))
-        }
-    }
-
-    private func handStar(center: CGPoint, size: CGFloat, time: Double) -> Path {
+    private func inkStar(center: CGPoint, radius: CGFloat) -> Path {
         var path = Path()
-        let wobble = CGFloat(0.035 * sin(time * 0.8))
-        let points: [CGPoint] = [
-            CGPoint(x: center.x, y: center.y - size),
-            CGPoint(x: center.x + size * 0.24, y: center.y - size * 0.22),
-            CGPoint(x: center.x + size, y: center.y + wobble),
-            CGPoint(x: center.x + size * 0.22, y: center.y + size * 0.23),
-            CGPoint(x: center.x + wobble, y: center.y + size),
-            CGPoint(x: center.x - size * 0.22, y: center.y + size * 0.22),
-            CGPoint(x: center.x - size, y: center.y),
-            CGPoint(x: center.x - size * 0.22, y: center.y - size * 0.23)
-        ]
-        path.move(to: points[0])
-        for index in 1..<points.count {
-            let p = points[index]
-            let previous = points[index - 1]
-            let mid = CGPoint(x: (p.x + previous.x) * 0.5,
-                              y: (p.y + previous.y) * 0.5)
-            path.addQuadCurve(to: mid, control: previous)
+        for vertex in 0..<10 {
+            let angle = -Double.pi / 2 + Double(vertex) * Double.pi / 5
+            let irregular = [1.04, 0.47, 0.93, 0.43, 1.07, 0.48, 0.96, 0.44, 1.02, 0.50][vertex]
+            let r = Double(radius) * irregular
+            let p = CGPoint(x: center.x + CGFloat(cos(angle) * r),
+                            y: center.y + CGFloat(sin(angle) * r))
+            if vertex == 0 { path.move(to: p) } else { path.addLine(to: p) }
         }
-        path.addQuadCurve(to: points[0], control: points[points.count - 1])
+        path.closeSubpath()
         return path
     }
 }
