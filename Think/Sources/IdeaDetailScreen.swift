@@ -24,17 +24,17 @@ struct IdeaDetailScreen: View {
                         .lineSpacing(7).textSelection(.enabled)
                     Rectangle().fill(Theme.line).frame(height: 1)
                     Button { editing = true } label: {
-                        Label("Редактировать идею", systemImage: "pencil")
+                        SketchLabel("Редактировать идею", symbol: "pencil")
                             .frame(maxWidth: .infinity).padding(.vertical, 17)
                             .background(Theme.panel, in: Capsule())
                     }
                     Button { qr = true } label: {
-                        Label("Поделиться QR-кодом", systemImage: "qrcode")
+                        SketchLabel("Поделиться QR-кодом", symbol: "qrcode")
                             .frame(maxWidth: .infinity).padding(.vertical, 18)
                             .background(Theme.yellow, in: Capsule())
                     }
                     ShareLink(item: current.text) {
-                        Label("Поделиться текстом", systemImage: "square.and.arrow.up")
+                        SketchLabel("Поделиться текстом", symbol: "square.and.arrow.up")
                             .frame(maxWidth: .infinity).padding(.vertical, 17)
                             .background(Theme.panel, in: Capsule())
                     }
@@ -52,7 +52,7 @@ struct IdeaDetailScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) { deleteConfirm = true } label: {
-                        Image(systemName: "trash").foregroundStyle(Theme.muted)
+                        SketchGlyph(name: "trash", size: 18).foregroundStyle(Theme.muted)
                     }
                 }
             }
