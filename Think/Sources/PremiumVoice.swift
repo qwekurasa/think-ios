@@ -126,7 +126,7 @@ struct ThinkWaveform: View {
                     let height = CGFloat(4 + 22 * wave * Double(active ? max(level, 0.18) : 0.10))
                     let x = CGFloat(index) * step + step * 0.5
                     var stroke = Path()
-                    stroke.move(to: CGPoint(x: x + 0.4 * sin(time + n), y: size.height * 0.5 - height * 0.5))
+                    stroke.move(to: CGPoint(x: x + CGFloat(0.4 * sin(time + n)), y: size.height * 0.5 - height * 0.5))
                     stroke.addLine(to: CGPoint(x: x, y: size.height * 0.5 + height * 0.5))
                     context.stroke(stroke, with: .color(Theme.ink.opacity(0.74)),
                                    style: StrokeStyle(lineWidth: 1.25, lineCap: .round))
@@ -147,7 +147,7 @@ struct ThinkMicrophone: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
-            let pulse = 1 + sin(time * 2.1) * 0.018 + Double(level) * 0.04
+            let pulse = CGFloat(1 + sin(time * 2.1) * 0.018 + Double(level) * 0.04)
             Canvas { context, size in
                 let center = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
                 let radius = min(size.width, size.height) * 0.34 * CGFloat(pulse)
