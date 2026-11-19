@@ -71,8 +71,7 @@ struct IdeaEnergy: Codable {
     var pinned: Bool = false
 
     func deadline() -> Date {
-        let normal = lastTouched.addingTimeInterval(7 * 24 * 3600)
-        return max(normal, protectedUntil ?? .distantPast)
+        ThinkIdeaRules.deadline(lastTouched: lastTouched, protectedUntil: protectedUntil)
     }
 }
 
@@ -161,7 +160,7 @@ final class IdeaStore: ObservableObject {
         let key = id.uuidString
         guard var record = energy[key] else { return }
         let now = Date()
-        if allowReward && now.timeIntervalSince(record.lastReviewReward) >= 24 * 3600 {
+        if allowReward && ThinkIdeaRules.shouldRewardReview(lastReward: record.lastReviewReward, now: now) {
             record.lastReviewReward = now
             record.accruedStars += 2
             stars += 2
@@ -190,12 +189,16 @@ final class IdeaStore: ObservableObject {
     }
 
     func isFading(_ idea: Idea) -> Bool {
-        remaining(idea) <= 24 * 3600
+        let record = energyFor(idea)
+        return ThinkIdeaRules.isFading(lastTouched: record.lastTouched, protectedUntil: record.protectedUntil, now: Date())
     }
 
     func refreshLifecycle() {
         let now = Date()
-        let expired = ideas.filter { energyFor($0).deadline() <= now }
+        let expired = ideas.filter {
+            let record = energyFor($0)
+            return ThinkIdeaRules.isExpired(lastTouched: record.lastTouched, protectedUntil: record.protectedUntil, now: now)
+        }
         guard !expired.isEmpty else { return }
         for idea in expired {
             let record = energyFor(idea)

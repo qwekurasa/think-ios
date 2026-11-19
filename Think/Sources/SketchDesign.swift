@@ -322,3 +322,30 @@ extension View {
         modifier(SketchEdge(radius: radius, seed: seed))
     }
 }
+
+
+/// Subtle, deterministic imperfections for short headlines. The character
+/// offsets remain stable while the view updates, unlike random jitter.
+struct SketchHeading: View {
+    let text: String
+    let size: CGFloat
+
+    init(_ text: String, size: CGFloat = 32) {
+        self.text = text
+        self.size = size
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: -0.9) {
+            ForEach(Array(text.enumerated()), id: \.offset) { index, character in
+                Text(String(character))
+                    .font(SketchFont.regular(size))
+                    .rotationEffect(.degrees(Double(((index * 7 + text.count) % 9) - 4) * 0.42))
+                    .offset(y: CGFloat(((index * 11 + text.count) % 5) - 2) * 0.46)
+            }
+        }
+        .foregroundStyle(Theme.ink)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+    }
+}

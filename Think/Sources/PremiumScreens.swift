@@ -124,6 +124,7 @@ struct ThinkCaptureFlow: View {
     init(start: ThinkEntry, onCompleted: @escaping () -> Void) {
         self.onCompleted = onCompleted
         _mode = State(initialValue: start)
+        _draft = State(initialValue: UserDefaults.standard.string(forKey: "think-active-draft-v2") ?? "")
     }
 
     var body: some View {
@@ -158,6 +159,7 @@ struct ThinkCaptureFlow: View {
     private func finish() {
         guard !completed else { return }
         completed = true
+        UserDefaults.standard.removeObject(forKey: "think-active-draft-v2")
         onCompleted()
         dismiss()
     }
@@ -287,7 +289,13 @@ struct PremiumTextEditor: View {
                 .padding(.horizontal, 28).padding(.bottom, 17)
             }
         }
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            if existing == nil { UserDefaults.standard.set(value, forKey: "think-active-draft-v2") }
+        }
+        .onChange(of: value) { _, latest in
+            if existing == nil { UserDefaults.standard.set(latest, forKey: "think-active-draft-v2") }
+        }
     }
     private func close() {
         if let onCancel { onCancel() } else { dismiss() }
@@ -309,8 +317,7 @@ struct PremiumIdeasScreen: View {
         VStack(alignment: .leading, spacing: 19) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Твои идеи")
-                        .font(.custom("Noteworthy-Light", size: 34))
+                    SketchHeading("Твои идеи", size: 34)
                     Text("\(store.ideas.count) сохранено")
                         .font(.custom("Noteworthy-Light", size: 13)).foregroundStyle(Theme.muted)
                 }
@@ -408,8 +415,7 @@ struct PremiumStarsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 23) {
-                Text("Твои звёзды")
-                    .font(.custom("Noteworthy-Light", size: 34))
+                SketchHeading("Твои звёзды", size: 34)
                     .foregroundStyle(Theme.ink)
 
                 VStack(spacing: 14) {
@@ -436,8 +442,7 @@ struct PremiumStarsScreen: View {
                 }
 
                 VStack(alignment: .leading, spacing: 11) {
-                    Text("Как растут звёзды")
-                        .font(.custom("Noteworthy-Light", size: 23))
+                    SketchHeading("Как растут звёзды", size: 23)
                     rule("Новая идея", "+10", "plus")
                     rule("Вернуться через сутки", "+2", "arrow.uturn.backward")
                     rule("Изменить текст идеи", "+3", "pencil")

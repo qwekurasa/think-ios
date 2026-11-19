@@ -33,6 +33,13 @@ jobs:
           xcodebuild -version
           xcodebuild -list -project Think.xcodeproj
 
+      - name: Check idea lifecycle rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          swiftc Think/Sources/ThinkIdeaRules.swift Tests/ThinkIdeaRulesChecks.swift -o "$RUNNER_TEMP/think-rules-checks"
+          "$RUNNER_TEMP/think-rules-checks"
+
       - name: Compile Think for physical iPhones
         shell: bash
         run: |

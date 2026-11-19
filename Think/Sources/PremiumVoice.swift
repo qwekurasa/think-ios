@@ -362,6 +362,11 @@ struct PremiumVoiceScreen: View {
             }
         }
         .onAppear { Task { await speech.start() } }
+        .onChange(of: speech.transcript) { _, _ in
+            if !committed {
+                UserDefaults.standard.set(fullText, forKey: "think-active-draft-v2")
+            }
+        }
         .onDisappear { speech.stop() }
     }
 }
