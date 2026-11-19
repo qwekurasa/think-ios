@@ -74,6 +74,24 @@ struct SketchOval: Shape {
     }
 }
 
+struct SketchRule: Shape {
+    var seed: CGFloat = 0
+    var amplitude: CGFloat = 0.8
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let steps = 48
+        for index in 0...steps {
+            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(steps)
+            let phase = CGFloat(index) * 0.73 + seed
+            let y = rect.midY + amplitude * (0.65 * sin(phase) + 0.25 * sin(phase * 0.41))
+            let point = CGPoint(x: x, y: y)
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
+    }
+}
+
 struct SketchGlyph: View {
     let name: String
     var size: CGFloat = 23
