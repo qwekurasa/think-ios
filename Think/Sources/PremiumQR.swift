@@ -70,7 +70,7 @@ struct AnimatedThinkQR: View {
                     let r = radius * CGFloat(0.7 + eased * 0.3)
                     let dot = Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2))
                     context.fill(dot, with: .color(
-                        (radiant ? Color(red: 0.65 + 0.26 * sin(i * 0.015), green: 0.20 + 0.12 * sin(i * 0.025), blue: 0.85) : Color(red: 0.38, green: 0.13, blue: 0.65)).opacity(0.35 + eased * 0.65)
+                        Color(red: 0.10, green: 0.10, blue: 0.11).opacity(0.48 + eased * 0.48)
                     ))
                 }
             }
@@ -95,13 +95,13 @@ struct PremiumQRScreen: View {
             VStack(spacing: 0) {
                 HStack {
                     Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17))
+                        SketchGlyph(name: "chevron.left", size: 20)
+                            .font(.custom("Noteworthy-Light", size: 17))
                             .frame(width: 43, height: 43)
                     }
                     Spacer()
                     Text("ПОДЕЛИТЬСЯ ИДЕЕЙ")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.custom("Noteworthy-Light", size: 10))
                         .tracking(1.6)
                     Spacer()
                     Color.clear.frame(width: 43, height: 43)
@@ -115,22 +115,22 @@ struct PremiumQRScreen: View {
                         .accessibilityAddTraits(.isImage)
                         .padding(.bottom, 29)
                     Text("Открой мысль на любом устройстве")
-                        .font(.system(size: 17))
+                        .font(.custom("Noteworthy-Light", size: 17))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
                     Text("Наведи камеру на QR-код.\nПриложение Think не требуется.")
-                        .font(.system(size: 13))
+                        .font(.custom("Noteworthy-Light", size: 13))
                         .foregroundStyle(Theme.muted)
                         .lineSpacing(4)
                         .multilineTextAlignment(.center)
                         .padding(.top, 12)
                 } else {
-                    ThinkStar().fill(Theme.purple).frame(width: 55, height: 55)
+                    ThinkStar().stroke(Theme.ink, lineWidth: 1.3).frame(width: 55, height: 55)
                     Text("Слишком много текста для QR")
-                        .font(.system(size: 22, weight: .regular))
+                        .font(.custom("Noteworthy-Light", size: 22))
                         .foregroundStyle(Theme.ink).padding(.top, 22)
                     Text("Отправь эту идею обычным текстом.")
-                        .font(.system(size: 14))
+                        .font(.custom("Noteworthy-Light", size: 14))
                         .foregroundStyle(Theme.muted)
                         .padding(.top, 12)
                 }
