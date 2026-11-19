@@ -506,7 +506,7 @@ struct IdeaListScreen: View {
                             }.buttonStyle(.plain)
                             .contextMenu {
                                 Button(role: .destructive) { store.delete(idea.id) } label: {
-                                    Label("Удалить", systemImage: "trash")
+                                    SketchLabel("Удалить", symbol: "trash")
                                 }
                             }
                         }
