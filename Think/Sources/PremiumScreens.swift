@@ -606,6 +606,31 @@ struct PremiumIdeaDetail: View {
             ZStack {
                 SoftPurpleAtmosphere()
                 VStack(spacing: 0) {
+                    HStack {
+                        Button { dismiss() } label: {
+                            SketchGlyph(name: "chevron.left", size: 20)
+                                .frame(width: 42, height: 42)
+                        }
+                        Spacer()
+                        Text("ИДЕЯ").font(SketchFont.bold(12)).tracking(2.0)
+                            .foregroundStyle(Theme.muted)
+                        Spacer()
+                        Menu {
+                            ShareLink(item: current.text) {
+                                SketchLabel("Отправить текст", symbol: "square.and.arrow.up")
+                            }
+                            Button(role: .destructive) { deleteConfirm = true } label: {
+                                SketchLabel("Удалить идею", symbol: "trash")
+                            }
+                        } label: {
+                            SketchGlyph(name: "ellipsis", size: 22)
+                                .frame(width: 42, height: 42)
+                        }
+                    }
+                    .foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+
                     ScrollView {
                         VStack(alignment: .leading, spacing: 23) {
                             HStack(spacing: 8) {
@@ -621,7 +646,7 @@ struct PremiumIdeaDetail: View {
                                 .lineSpacing(7)
                                 .foregroundStyle(Theme.ink)
                                 .textSelection(.enabled)
-                            Divider().overlay(Theme.line)
+                            SketchRule(seed: 3).stroke(Theme.line, lineWidth: 1).frame(height: 2)
                                 .padding(.top, 15)
                             Text(current.createdAt, format: .dateTime.day().month(.wide).year())
                                 .font(.custom("Noteworthy-Light", size: 12))
@@ -649,29 +674,7 @@ struct PremiumIdeaDetail: View {
                     }.padding(.horizontal, 26).padding(.bottom, 22)
                 }
             }
-            .navigationTitle("Идея")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
-                        SketchGlyph(name: "chevron.left", size: 19)
-                    }
-                    .foregroundStyle(Theme.ink)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        ShareLink(item: current.text) {
-                            SketchLabel("Отправить текст", symbol: "square.and.arrow.up")
-                        }
-                        Button(role: .destructive) { deleteConfirm = true } label: {
-                            SketchLabel("Удалить идею", symbol: "trash")
-                        }
-                    } label: {
-                        SketchGlyph(name: "ellipsis", size: 22)
-                            .foregroundStyle(Theme.ink)
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .fullScreenCover(isPresented: $editing) {
             PremiumTextEditor(initialText: current.text, existing: current)
