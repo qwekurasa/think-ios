@@ -22,7 +22,7 @@ struct IdeaDetailScreen: View {
                         .font(.custom("Noteworthy-Light", size: 24))
                         .foregroundStyle(Theme.ink)
                         .lineSpacing(7).textSelection(.enabled)
-                    Rectangle().fill(Theme.line).frame(height: 1)
+                    SketchRule(seed: 6).stroke(Theme.line, lineWidth: 1).frame(height: 2)
                     Button { editing = true } label: {
                         SketchLabel("Редактировать идею", symbol: "pencil")
                             .frame(maxWidth: .infinity).padding(.vertical, 17)
