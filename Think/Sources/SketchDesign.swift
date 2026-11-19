@@ -19,7 +19,7 @@ struct SketchRoundedRectangle: Shape {
 
     func path(in rect: CGRect) -> Path {
         let bounds = rect.insetBy(dx: max(1, wobble), dy: max(1, wobble))
-        let corner = min(cornerRadius, bounds.width * 0.30, bounds.height * 0.30)
+        let corner = min(cornerRadius, min(bounds.width * 0.30, bounds.height * 0.30))
         let wave = max(0.25, wobble * 0.52)
         var path = Path()
         var count = 0
