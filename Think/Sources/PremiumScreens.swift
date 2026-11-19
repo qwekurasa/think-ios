@@ -104,11 +104,11 @@ struct PremiumRootScreen: View {
             withAnimation(.easeInOut(duration: 0.18)) { activeTab = index }
         } label: {
             VStack(spacing: 4) {
-                SketchGlyph(name: symbol, size: 22, lineWidth: 1.55,
+                SketchGlyph(name: symbol, size: 26, lineWidth: 1.35,
                             color: activeTab == index ? Theme.ink : Theme.muted)
                 Text(caption).font(SketchFont.regular(11))
             }
-            .frame(width: 62, height: 48)
+            .frame(width: 62, height: 51)
             .foregroundStyle(activeTab == index ? Theme.ink : Theme.muted)
         }.buttonStyle(.plain)
     }
@@ -511,27 +511,6 @@ struct PremiumStarsScreen: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Поделиться идеей")
-                        .font(.custom("Noteworthy-Light", size: 23))
-                    HStack(spacing: 12) {
-                        SketchGlyph(name: "qrcode", size: 24)
-                            .foregroundStyle(Theme.purple)
-                            .font(.custom("Noteworthy-Light", size: 25))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("QR-коды бесплатны")
-                                .font(.custom("Noteworthy-Light", size: 15))
-                            Text("QR-коды бесплатны для всех")
-                                .font(.custom("Noteworthy-Light", size: 12))
-                                .foregroundStyle(Theme.muted)
-                        }
-                        Spacer()
-                        SketchGlyph(name: "checkmark.circle.fill", size: 22)
-                            .foregroundStyle(Theme.purple)
-                    }
-                    .padding(16)
-                    .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 12))
-                }
 
                 if !store.faded.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
