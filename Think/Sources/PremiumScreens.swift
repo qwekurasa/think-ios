@@ -263,7 +263,7 @@ struct PremiumTextEditor: View {
                         SketchGlyph(name: "mic", size: 22)
                             .font(.custom("Noteworthy-Light", size: 19))
                             .frame(width: 53, height: 52)
-                            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 11))
+                            .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain).disabled(onSwitchToVoice == nil)
                         .opacity(onSwitchToVoice == nil ? 0.35 : 1)
                     Button {
@@ -275,7 +275,7 @@ struct PremiumTextEditor: View {
                             .font(.custom("Noteworthy-Light", size: 15))
                             .frame(maxWidth: .infinity)
                             .frame(height: 52)
-                            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 11))
+                            .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 11))
                     }
                     .buttonStyle(.plain).disabled(!hasText)
                     .opacity(hasText ? 1 : 0.42)
@@ -316,7 +316,7 @@ struct PremiumIdeasScreen: View {
                     SketchGlyph(name: "plus")
                         .font(.custom("Noteworthy-Light", size: 20))
                         .frame(width: 43, height: 43)
-                        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
+                        .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 12))
                 }.foregroundStyle(Theme.ink)
             }
             HStack(spacing: 12) {
@@ -327,7 +327,7 @@ struct PremiumIdeasScreen: View {
             .font(.custom("Noteworthy-Light", size: 14))
             .foregroundStyle(Theme.muted)
             .padding(15)
-            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 11))
+            .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 11))
 
             if store.ideas.isEmpty {
                 Spacer()
@@ -350,7 +350,7 @@ struct PremiumIdeasScreen: View {
                             Button { onSelect(idea) } label: {
                                 VStack(alignment: .leading, spacing: 18) {
                                     HStack {
-                                        ThinkStar().fill(Theme.purple).frame(width: 14, height: 14)
+                                        ThinkStar().stroke(Theme.ink, lineWidth: 1.2).frame(width: 14, height: 14)
                                         Text(store.energyFor(idea).pinned ? "ВАЖНАЯ ИДЕЯ" : "ИДЕЯ")
                                             .font(.custom("Noteworthy-Light", size: 10))
                                             .tracking(1.2)
@@ -377,8 +377,8 @@ struct PremiumIdeasScreen: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(19)
-                                .background(Theme.paper, in: RoundedRectangle(cornerRadius: 14))
-                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 0.8))
+                                .background(Theme.paper, in: SketchRoundedRectangle(cornerRadius: 14))
+                                .overlay(SketchRoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 0.8))
                             }.buttonStyle(.plain)
                             .contextMenu {
                                 Button(role: .destructive) {
@@ -410,7 +410,7 @@ struct PremiumStarsScreen: View {
                     .foregroundStyle(Theme.ink)
 
                 VStack(spacing: 14) {
-                    ThinkStar().fill(Theme.purple)
+                    ThinkStar().stroke(Theme.ink, lineWidth: 1.2)
                         .frame(width: 51, height: 51)
                         
                     Text("\(store.stars)")
@@ -421,7 +421,7 @@ struct PremiumStarsScreen: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 36)
-                .background(Theme.panel, in: RoundedRectangle(cornerRadius: 14))
+                .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 14))
 
                 if let feedback {
                     Text(feedback)
@@ -429,7 +429,7 @@ struct PremiumStarsScreen: View {
                         .foregroundStyle(Theme.purple)
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 11))
+                        .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 11))
                 }
 
                 VStack(alignment: .leading, spacing: 11) {
@@ -455,7 +455,7 @@ struct PremiumStarsScreen: View {
                     ForEach(store.ideas) { idea in
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .top, spacing: 10) {
-                                ThinkStar().fill(Theme.purple)
+                                ThinkStar().stroke(Theme.ink, lineWidth: 1.2)
                                     .frame(width: 12, height: 12).padding(.top, 3)
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(idea.text)
@@ -495,9 +495,9 @@ struct PremiumStarsScreen: View {
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.paper, in: RoundedRectangle(cornerRadius: 13))
+                        .background(Theme.paper, in: SketchRoundedRectangle(cornerRadius: 13))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 13)
+                            SketchRoundedRectangle(cornerRadius: 13)
                                 .stroke(Theme.line, lineWidth: 0.8)
                         )
                     }
@@ -522,7 +522,7 @@ struct PremiumStarsScreen: View {
                             .foregroundStyle(Theme.purple)
                     }
                     .padding(16)
-                    .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 12))
                 }
 
                 if !store.faded.isEmpty {
@@ -572,7 +572,7 @@ struct PremiumStarsScreen: View {
                 .font(.custom("Noteworthy-Light", size: 12))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(Theme.panel, in: RoundedRectangle(cornerRadius: 9))
+                .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 9))
         }
         .disabled(store.stars < cost)
         .opacity(store.stars < cost ? 0.45 : 1)
@@ -609,7 +609,7 @@ struct PremiumIdeaDetail: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 23) {
                             HStack(spacing: 8) {
-                                ThinkStar().fill(Theme.purple)
+                                ThinkStar().stroke(Theme.ink, lineWidth: 1.2)
                                     .frame(width: 17, height: 17)
                                 Text("ТВОЯ ИДЕЯ")
                                     .font(.custom("Noteworthy-Bold", size: 11))
