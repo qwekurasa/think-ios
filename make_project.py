@@ -19,7 +19,7 @@ asset.mkdir(parents=True, exist_ok=True)
 # It is rasterized from sampled cubic curves, not from a generic circle.
 side = 1024
 pixels = bytearray(bytes((255, 255, 254)) * (side * side))
-purple = (169, 69, 227)
+purple = (38, 38, 40)
 graphite = (42, 41, 47)
 
 # Four-tip star with a compact curved diamond center.
@@ -54,7 +54,7 @@ outline += sample_cubic((16,3),(27,0),(34,6),(32,15))[1:]
 outline += sample_cubic((32,15),(34,21),(30,26),(23,29))[1:]
 outline += [(24,35),(16,35),(15,28)]
 outline += sample_cubic((15,28),(7,27),(6,27),(5,23))[1:]
-outline = [convert(p) for p in outline]
+outline = [convert((p[0] + math.sin(i * 1.37) * 0.20, p[1] + math.cos(i * 0.91) * 0.18)) for i, p in enumerate(outline)]
 
 # Draw softly anti-aliased charcoal outline by distance to path segments.
 stroke = 13.5
@@ -133,7 +133,7 @@ base = {
 target = {
     "ASSETCATALOG_COMPILER_APPICON_NAME":"AppIcon",
     "CODE_SIGN_STYLE":"Automatic",
-    "CURRENT_PROJECT_VERSION":"6",
+    "CURRENT_PROJECT_VERSION":"7",
     "GENERATE_INFOPLIST_FILE":"YES",
     "INFOPLIST_KEY_CFBundleDisplayName":"Think",
     "INFOPLIST_KEY_LSApplicationCategoryType":'"public.app-category.productivity"',
@@ -143,7 +143,7 @@ target = {
     "INFOPLIST_KEY_NSMicrophoneUsageDescription":'"Think использует микрофон для записи идей голосом."',
     "INFOPLIST_KEY_NSSpeechRecognitionUsageDescription":'"Think превращает твою речь в текст идеи."',
     "IPHONEOS_DEPLOYMENT_TARGET":"17.0",
-    "MARKETING_VERSION":"1.5",
+    "MARKETING_VERSION":"1.6",
     "PRODUCT_BUNDLE_IDENTIFIER":"com.think.ideas.personal",
     "PRODUCT_NAME":'"$(TARGET_NAME)"',
     "SUPPORTED_PLATFORMS":'"iphoneos iphonesimulator"',
