@@ -200,6 +200,54 @@ struct SketchGlyph: View {
                 path.addLine(to: point(0.50, 0.49))
                 path.addLine(to: point(0.23, 0.62))
                 path.addLine(to: point(0.30, 0.88))
+            case "checkmark.circle.fill":
+                path.addEllipse(in: CGRect(x: 0.08*w, y: 0.08*h, width: 0.84*w, height: 0.84*h))
+                path.move(to: point(0.27, 0.51))
+                path.addLine(to: point(0.44, 0.68))
+                path.addLine(to: point(0.76, 0.32))
+            case "ellipsis":
+                for index in 0..<3 {
+                    let x = CGFloat(0.22 + Double(index) * 0.28)
+                    path.addEllipse(in: CGRect(x: x*w, y: 0.46*h, width: 0.10*w, height: 0.10*h))
+                }
+            case "trash":
+                path.move(to: point(0.24, 0.28))
+                path.addLine(to: point(0.76, 0.28))
+                path.move(to: point(0.34, 0.20))
+                path.addQuadCurve(to: point(0.66, 0.20), control: point(0.50, 0.14))
+                path.move(to: point(0.29, 0.32))
+                path.addLine(to: point(0.34, 0.87))
+                path.addQuadCurve(to: point(0.67, 0.87), control: point(0.52, 0.92))
+                path.addLine(to: point(0.72, 0.32))
+                path.move(to: point(0.43, 0.42))
+                path.addLine(to: point(0.44, 0.75))
+                path.move(to: point(0.57, 0.42))
+                path.addLine(to: point(0.56, 0.75))
+            case "pin.fill":
+                path.move(to: point(0.50, 0.08))
+                path.addQuadCurve(to: point(0.80, 0.39), control: point(0.81, 0.12))
+                path.addQuadCurve(to: point(0.50, 0.70), control: point(0.81, 0.65))
+                path.addQuadCurve(to: point(0.20, 0.39), control: point(0.19, 0.65))
+                path.addQuadCurve(to: point(0.50, 0.08), control: point(0.19, 0.12))
+                path.move(to: point(0.50, 0.67))
+                path.addLine(to: point(0.48, 0.96))
+            case "square.and.arrow.up":
+                path.move(to: point(0.18, 0.43))
+                path.addLine(to: point(0.18, 0.83))
+                path.addQuadCurve(to: point(0.82, 0.83), control: point(0.50, 0.88))
+                path.addLine(to: point(0.82, 0.43))
+                path.move(to: point(0.50, 0.62))
+                path.addLine(to: point(0.50, 0.10))
+                path.move(to: point(0.31, 0.30))
+                path.addLine(to: point(0.50, 0.10))
+                path.addLine(to: point(0.69, 0.30))
+            case "arrow.uturn.backward":
+                path.move(to: point(0.76, 0.75))
+                path.addQuadCurve(to: point(0.32, 0.37), control: point(0.74, 0.35))
+                path.addLine(to: point(0.32, 0.16))
+                path.move(to: point(0.12, 0.34))
+                path.addLine(to: point(0.32, 0.16))
+                path.addLine(to: point(0.52, 0.34))
             default:
                 path.move(to: point(0.50, 0.10))
                 path.addLine(to: point(0.50, 0.90))
@@ -215,6 +263,25 @@ struct SketchGlyph: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+struct SketchLabel: View {
+    let title: String
+    let symbol: String
+    var size: CGFloat = 18
+
+    init(_ title: String, symbol: String, size: CGFloat = 18) {
+        self.title = title
+        self.symbol = symbol
+        self.size = size
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            SketchGlyph(name: symbol, size: size, lineWidth: 1.35)
+            Text(title).font(SketchFont.regular(15))
+        }
     }
 }
 
