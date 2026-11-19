@@ -8,7 +8,7 @@ struct ThinkActionStyle: ButtonStyle {
             .foregroundStyle(Theme.ink)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(Theme.paper, in: SketchSketchRoundedRectangle(cornerRadius: 12, seed: 3))
+            .background(Theme.paper, in: SketchRoundedRectangle(cornerRadius: 12, seed: 3))
             .overlay(SketchRoundedRectangle(cornerRadius: 12, seed: 7)
                 .stroke(Theme.ink.opacity(filled ? 0.82 : 0.62), lineWidth: 1.15))
             .overlay(SketchRoundedRectangle(cornerRadius: 12, wobble: 1.25, seed: 12)
@@ -109,7 +109,6 @@ struct PremiumRootScreen: View {
             .foregroundStyle(activeTab == index ? Theme.ink : Theme.muted)
         }.buttonStyle(.plain)
     }
-}
 }
 
 struct ThinkCaptureFlow: View {
