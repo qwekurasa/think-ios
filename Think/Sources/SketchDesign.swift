@@ -171,7 +171,7 @@ struct SketchGlyph: View {
                 path.move(to: point(0.19, 0.79))
                 path.addLine(to: point(0.15, 0.94))
             case "qrcode":
-                for (x, y) in [(0.12,0.12),(0.62,0.12),(0.12,0.62)] {
+                for (x, y) in [(CGFloat(0.12),CGFloat(0.12)),(CGFloat(0.62),CGFloat(0.12)),(CGFloat(0.12),CGFloat(0.62))] {
                     path.addRect(CGRect(x: x*w, y: y*h, width: 0.25*w, height: 0.25*h))
                     path.addRect(CGRect(x: (x+0.07)*w, y: (y+0.07)*h, width: 0.11*w, height: 0.11*h))
                 }
