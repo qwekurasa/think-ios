@@ -65,7 +65,10 @@ struct PremiumRootScreen: View {
                 .padding(.bottom, 11)
                 .background(Theme.paper.opacity(0.86))
                 .overlay(alignment: .top) {
-                    Theme.line.frame(height: 0.5).opacity(0.65)
+                    SketchRule(seed: 2, amplitude: 0.45)
+                        .stroke(Theme.line.opacity(0.78), lineWidth: 0.85)
+                        .frame(height: 2)
+                        .padding(.horizontal, 12)
                 }
             }
         }
