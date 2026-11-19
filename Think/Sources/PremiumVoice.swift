@@ -115,18 +115,28 @@ struct ThinkWaveform: View {
     var level: CGFloat
     var active: Bool
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0/30)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: 3.5) {
-                ForEach(0..<37, id: \.self) { i in
-                    let shape = abs(sin(Double(i) * 0.71) * cos(Double(i) * 0.17 + t * (active ? 5.0 : 0.4)))
-                    let base = 4.0 + 23.0 * shape * Double(active ? max(level, 0.18) : 0.12)
-                    Capsule()
-                        .fill(i > 14 && i < 25 ? Theme.purple : Theme.muted.opacity(0.54))
-                        .frame(width: 2.3, height: CGFloat(base))
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                let count = 37
+                let step = size.width / CGFloat(count)
+                for index in 0..<count {
+                    let n = Double(index)
+                    let wave = abs(sin(n * 0.71) * cos(n * 0.17 + time * (active ? 4.8 : 0.35)))
+                    let height = CGFloat(4 + 22 * wave * Double(active ? max(level, 0.18) : 0.10))
+                    let x = CGFloat(index) * step + step * 0.5
+                    var stroke = Path()
+                    stroke.move(to: CGPoint(x: x + 0.4 * sin(time + n), y: size.height * 0.5 - height * 0.5))
+                    stroke.addLine(to: CGPoint(x: x, y: size.height * 0.5 + height * 0.5))
+                    context.stroke(stroke, with: .color(Theme.ink.opacity(0.74)),
+                                   style: StrokeStyle(lineWidth: 1.25, lineCap: .round))
+                    context.stroke(stroke, with: .color(Theme.muted.opacity(0.25)),
+                                   style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 }
             }
-        }.frame(height: 41).accessibilityHidden(true)
+        }
+        .frame(height: 41)
+        .accessibilityHidden(true)
     }
 }
 
@@ -135,74 +145,62 @@ struct ThinkMicrophone: View {
     var listening: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1/30)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let pulse = CGFloat(1.0 + sin(t * 2.6) * 0.045 + Double(level) * 0.13)
-            ZStack {
-                Circle()
-                    .fill(RadialGradient(colors: [
-                        Theme.purple.opacity(listening ? 0.16 : 0.08),
-                        Theme.purple.opacity(listening ? 0.055 : 0.025),
-                        .clear
-                    ], center: .center, startRadius: 20, endRadius: 85))
-                    .frame(width: 200, height: 200)
-                Circle().stroke(Theme.purple.opacity(0.08), lineWidth: 0.7)
-                    .frame(width: 116, height: 116).scaleEffect(pulse)
-                Circle().stroke(Theme.purple.opacity(0.14), lineWidth: 1)
-                    .frame(width: 100, height: 100).scaleEffect(pulse * 0.99)
-                Circle()
-                    .fill(RadialGradient(colors: [.white, Color(red: 0.96, green: 0.88, blue: 1), Theme.purpleLight], center: .init(x: 0.33, y: 0.22), startRadius: 3, endRadius: 58))
-                    .frame(width: 77, height: 77)
-                    .shadow(color: Theme.purple.opacity(0.21), radius: 18)
-                Image(systemName: listening ? "mic.fill" : "mic.slash")
-                    .font(.system(size: 24, weight: .light))
-                    .foregroundStyle(Theme.purple)
-            }.scaleEffect(pulse)
-        }.frame(width: 205, height: 205)
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let pulse = 1 + sin(time * 2.1) * 0.018 + Double(level) * 0.04
+            Canvas { context, size in
+                let center = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+                let radius = min(size.width, size.height) * 0.34 * CGFloat(pulse)
+                for pass in 0..<2 {
+                    let path = roughCircle(center: center, radius: radius * CGFloat(1 + Double(pass) * 0.10),
+                                           time: time, seed: Double(pass) * 2.1)
+                    context.stroke(path, with: .color(Theme.ink.opacity(listening ? (pass == 0 ? 0.66 : 0.24) : (pass == 0 ? 0.46 : 0.18))),
+                                   style: StrokeStyle(lineWidth: pass == 0 ? 1.35 : 0.75,
+                                                      lineCap: .round))
+                }
+                var mic = Path()
+                mic.move(to: CGPoint(x: center.x - radius * 0.13, y: center.y - radius * 0.34))
+                mic.addQuadCurve(to: CGPoint(x: center.x + radius * 0.13, y: center.y - radius * 0.34),
+                                 control: CGPoint(x: center.x, y: center.y - radius * 0.46))
+                mic.addLine(to: CGPoint(x: center.x + radius * 0.13, y: center.y + radius * 0.12))
+                mic.addQuadCurve(to: CGPoint(x: center.x - radius * 0.13, y: center.y + radius * 0.12),
+                                 control: CGPoint(x: center.x, y: center.y + radius * 0.26))
+                mic.closeSubpath()
+                mic.move(to: CGPoint(x: center.x - radius * 0.28, y: center.y + radius * 0.02))
+                mic.addQuadCurve(to: CGPoint(x: center.x + radius * 0.28, y: center.y + radius * 0.02),
+                                 control: CGPoint(x: center.x, y: center.y + radius * 0.48))
+                mic.move(to: CGPoint(x: center.x, y: center.y + radius * 0.34))
+                mic.addLine(to: CGPoint(x: center.x, y: center.y + radius * 0.49))
+                mic.move(to: CGPoint(x: center.x - radius * 0.18, y: center.y + radius * 0.49))
+                mic.addLine(to: CGPoint(x: center.x + radius * 0.18, y: center.y + radius * 0.49))
+                context.stroke(mic, with: .color(Theme.ink),
+                               style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round))
+            }
+            .scaleEffect(pulse)
+        }
+        .frame(width: 205, height: 205)
         .accessibilityLabel(listening ? "Микрофон включён" : "Микрофон выключен")
+    }
+
+    private func roughCircle(center: CGPoint, radius: CGFloat, time: Double, seed: Double) -> Path {
+        var path = Path()
+        for index in 0...90 {
+            let angle = Double(index) / 90 * 2 * Double.pi
+            let wobble = 1 + 0.018 * sin(angle * 7 + seed + time * 0.25)
+                + 0.009 * cos(angle * 13 + seed * 2)
+            let point = CGPoint(x: center.x + CGFloat(cos(angle) * Double(radius) * wobble),
+                                y: center.y + CGFloat(sin(angle) * Double(radius) * wobble))
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
     }
 }
 
 struct ThinkOrb: View {
     var active = true
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0/30)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let breathe = CGFloat(1 + sin(t * 1.55) * 0.035)
-            ZStack {
-                Circle()
-                    .fill(Theme.purple.opacity(0.12))
-                    .frame(width: 230, height: 230)
-                    .blur(radius: 52)
-                Circle()
-                    .fill(
-                        RadialGradient(colors: [
-                            Color(red: 0.99, green: 0.95, blue: 1),
-                            Color(red: 0.90, green: 0.70, blue: 1),
-                            Color(red: 0.54, green: 0.16, blue: 0.80),
-                            Color(red: 0.24, green: 0.10, blue: 0.48)
-                        ], center: .init(x: 0.29, y: 0.22), startRadius: 8, endRadius: 122)
-                    )
-                    .frame(width: 169, height: 169)
-                    .shadow(color: Theme.purple.opacity(0.19), radius: 29, y: 16)
-                Ellipse()
-                    .fill(LinearGradient(colors: [
-                        Color(red: 1, green: 0.92, blue: 1),
-                        Color(red: 0.96, green: 0.70, blue: 1).opacity(0.85),
-                        Color(red: 0.65, green: 0.30, blue: 0.89).opacity(0.2)
-                    ], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 172, height: 73)
-                    .rotationEffect(.degrees(-18 + sin(t * 0.8) * 9))
-                    .offset(x: 0, y: 28 + sin(t * 1.1) * 7)
-                    .mask(Circle().frame(width: 169, height: 169))
-                    .blur(radius: 5)
-                Circle().stroke(.white.opacity(0.50), lineWidth: 0.8)
-                    .frame(width: 169, height: 169)
-            }
-            .scaleEffect(active ? breathe : 1)
-        }
-        .frame(width: 260, height: 260)
-        .accessibilityLabel("Живой пурпурный шар")
+        ThinkLivingOrb()
+            .scaleEffect(active ? 1 : 0.98)
     }
 }
 
@@ -212,89 +210,48 @@ struct ReactiveEdgeGlow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            let breath = (sin(t * 1.85) + 1) * 0.5
-            let intensity = listening ? (0.64 + breath * 0.27 + Double(level) * 0.15) : 0.16
-
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            let breath = (sin(time * 1.6) + 1) * 0.5
             GeometryReader { geometry in
-                ZStack {
-                    // Four luminous ribbons travel around the complete screen,
-                    // not just the microphone. Enough opacity to remain visible
-                    // on a white background, while the center remains readable.
-                    HStack(spacing: 0) {
-                        LinearGradient(
-                            colors: [
-                                Theme.purple.opacity(0.65),
-                                Color(red: 0.88, green: 0.57, blue: 1).opacity(0.4),
-                                Color(red: 0.92, green: 0.75, blue: 1).opacity(0.3),
-                                .clear
-                            ],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 70)
-                        Spacer(minLength: 0)
-                        LinearGradient(
-                            colors: [
-                                .clear,
-                                Color(red: 0.89, green: 0.70, blue: 1).opacity(0.34),
-                                Color(red: 0.66, green: 0.31, blue: 0.96).opacity(0.6)
-                            ],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 70)
+                Canvas { context, size in
+                    let rect = CGRect(origin: .zero, size: size).insetBy(dx: 7, dy: 8)
+                    for pass in 0..<3 {
+                        let path = handFrame(in: rect, time: time, seed: Double(pass) * 2.4)
+                        let alpha = listening ? 0.25 + breath * 0.24 + Double(level) * 0.16 : 0.09
+                        context.stroke(path, with: .color(Theme.ink.opacity(alpha / Double(pass + 1))),
+                                       style: StrokeStyle(lineWidth: pass == 0 ? 1.4 : 0.75,
+                                                          lineCap: .round, lineJoin: .round))
                     }
-                    .blur(radius: 19)
-
-                    VStack(spacing: 0) {
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.60, green: 0.27, blue: 0.91).opacity(0.63),
-                                Color(red: 0.87, green: 0.69, blue: 1).opacity(0.36),
-                                .clear
-                            ],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                        .frame(height: 95)
-                        Spacer(minLength: 0)
-                        LinearGradient(
-                            colors: [
-                                .clear,
-                                Color(red: 0.82, green: 0.55, blue: 1).opacity(0.39),
-                                Color(red: 0.52, green: 0.25, blue: 0.91).opacity(0.64)
-                            ],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                        .frame(height: 93)
-                    }
-                    .blur(radius: 24)
-
-                    RoundedRectangle(cornerRadius: 36, style: .continuous)
-                        .stroke(
-                            AngularGradient(
-                                colors: [
-                                    Theme.purple.opacity(0.7),
-                                    Color(red: 0.86, green: 0.61, blue: 1).opacity(0.43),
-                                    Theme.purple.opacity(0.55),
-                                    Color(red: 0.94, green: 0.77, blue: 1).opacity(0.53),
-                                    Theme.purple.opacity(0.7)
-                                ],
-                                center: .center,
-                                angle: .degrees(reduceMotion ? 0 : t * 9)
-                            ),
-                            lineWidth: 5
-                        )
-                        .blur(radius: 8)
-                        .padding(3)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .opacity(min(1, intensity))
-                .scaleEffect(1 + CGFloat(0.008 * breath))
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private func handFrame(in rect: CGRect, time: Double, seed: Double) -> Path {
+        var path = Path()
+        let pointsPerEdge = 28
+        for edge in 0..<4 {
+            for step in 0...pointsPerEdge {
+                let u = CGFloat(step) / CGFloat(pointsPerEdge)
+                var point: CGPoint
+                switch edge {
+                case 0: point = CGPoint(x: rect.minX + rect.width * u, y: rect.minY)
+                case 1: point = CGPoint(x: rect.maxX, y: rect.minY + rect.height * u)
+                case 2: point = CGPoint(x: rect.maxX - rect.width * u, y: rect.maxY)
+                default: point = CGPoint(x: rect.minX, y: rect.maxY - rect.height * u)
+                }
+                let wobble = CGFloat(1.15 * sin(Double(step) * 1.3 + seed + time * 0.22))
+                if edge.isMultiple(of: 2) { point.y += wobble } else { point.x += wobble }
+                if edge == 0 && step == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -316,21 +273,17 @@ struct PremiumVoiceScreen: View {
     var body: some View {
         ZStack {
             Theme.paper.ignoresSafeArea()
-            RadialGradient(
-                colors: [Theme.purpleLight.opacity(0.17), .clear],
-                center: .bottom, startRadius: 5, endRadius: 440
-            ).ignoresSafeArea().allowsHitTesting(false)
             ReactiveEdgeGlow(level: speech.level, listening: speech.listening)
             VStack(spacing: 0) {
                 HStack {
                     Button { speech.stop(); onCancel() } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 17))
+                            .font(.custom("Noteworthy-Light", size: 17))
                             .frame(width: 42, height: 42)
                     }
                     Spacer()
                     Text("ГОЛОСОВАЯ ИДЕЯ")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.custom("Noteworthy-Bold", size: 10))
                         .tracking(2.1)
                         .foregroundStyle(Theme.muted)
                     Spacer()
@@ -345,22 +298,17 @@ struct PremiumVoiceScreen: View {
                         Text(fullText.isEmpty
                              ? "Расскажи идею.\nЯ сохраню\nкаждую мысль."
                              : fullText)
-                            .font(.system(size: 31, weight: .regular))
+                            .font(.custom("Noteworthy-Light", size: 31))
                             .tracking(-0.8)
                             .lineSpacing(3)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .foregroundStyle(
-                                LinearGradient(colors: [
-                                    Theme.ink, Theme.ink.opacity(0.96),
-                                    Theme.muted.opacity(0.52)
-                                ], startPoint: .top, endPoint: .bottom)
-                            )
+                            .foregroundStyle(Theme.ink)
                             .contentTransition(.opacity)
                             .animation(.easeOut(duration: 0.24), value: fullText)
                             .padding(.top, 58)
                         if let message = speech.message {
                             Text(message)
-                                .font(.system(size: 14))
+                                .font(.custom("Noteworthy-Light", size: 14))
                                 .foregroundStyle(Theme.purple)
                                 .padding(.top, 8)
                         }
@@ -370,7 +318,7 @@ struct PremiumVoiceScreen: View {
 
                 Text(speech.listening ? "СЛУШАЮ..." : "ЗАПИСЬ НА ПАУЗЕ")
                     .tracking(2.5)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.custom("Noteworthy-Light", size: 10))
                     .foregroundStyle(Theme.muted)
                 Button {
                     if speech.listening {
@@ -391,11 +339,11 @@ struct PremiumVoiceScreen: View {
                         onFinished()
                     } label: {
                         Text("Сохранить мысль")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.custom("Noteworthy-Light", size: 15))
                             .foregroundStyle(Theme.ink)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 11))
+                            .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 11, seed: 5))
                     }
                     .disabled(committed)
                     .padding(.horizontal, 29)
@@ -406,7 +354,7 @@ struct PremiumVoiceScreen: View {
                     onSwitchToText(fullText)
                 } label: {
                     Label("Перейти к тексту", systemImage: "keyboard")
-                        .font(.system(size: 13))
+                        .font(.custom("Noteworthy-Light", size: 13))
                         .foregroundStyle(Theme.muted)
                         .padding(.vertical, 16)
                 }
