@@ -366,7 +366,7 @@ struct PremiumIdeasScreen: View {
                                         Text(store.energyFor(idea).lastTouched, style: .date)
                                         Spacer()
                                         if store.isFading(idea) {
-                                            Label("Угасает", systemImage: "hourglass")
+                                            SketchLabel("Угасает", symbol: "hourglass")
                                                 .foregroundStyle(Theme.purple)
                                         } else {
                                             Text("ещё \(max(1, Int(ceil(store.remaining(idea) / 86400)))) дн.")
@@ -384,7 +384,7 @@ struct PremiumIdeasScreen: View {
                                 Button(role: .destructive) {
                                     store.delete(idea.id)
                                 } label: {
-                                    Label("Удалить", systemImage: "trash")
+                                    SketchLabel("Удалить", symbol: "trash")
                                 }
                             }
                         }
@@ -488,7 +488,7 @@ struct PremiumStarsScreen: View {
                                     }
                                 }
                             } else {
-                                Label("Важная идея", systemImage: "pin.fill")
+                                SketchLabel("Важная идея", symbol: "pin.fill")
                                     .font(.custom("Noteworthy-Light", size: 12))
                                     .foregroundStyle(Theme.purple)
                             }
@@ -518,7 +518,7 @@ struct PremiumStarsScreen: View {
                                 .foregroundStyle(Theme.muted)
                         }
                         Spacer()
-                        Image(systemName: "checkmark.circle.fill")
+                        SketchGlyph(name: "checkmark.circle.fill", size: 22)
                             .foregroundStyle(Theme.purple)
                     }
                     .padding(16)
@@ -641,10 +641,10 @@ struct PremiumIdeaDetail: View {
                         Button {
                             editing = true
                         } label: {
-                            Label("Редактировать", systemImage: "pencil")
+                            SketchLabel("Редактировать", symbol: "pencil")
                         }.buttonStyle(ThinkActionStyle())
                         Button { qr = true } label: {
-                            Label("Поделиться", systemImage: "square.and.arrow.up")
+                            SketchLabel("Поделиться", symbol: "square.and.arrow.up")
                         }.buttonStyle(ThinkActionStyle(filled: true))
                     }.padding(.horizontal, 26).padding(.bottom, 22)
                 }
@@ -661,13 +661,13 @@ struct PremiumIdeaDetail: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ShareLink(item: current.text) {
-                            Label("Отправить текст", systemImage: "square.and.arrow.up")
+                            SketchLabel("Отправить текст", symbol: "square.and.arrow.up")
                         }
                         Button(role: .destructive) { deleteConfirm = true } label: {
-                            Label("Удалить идею", systemImage: "trash")
+                            SketchLabel("Удалить идею", symbol: "trash")
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
+                        SketchGlyph(name: "ellipsis", size: 22)
                             .foregroundStyle(Theme.ink)
                     }
                 }
