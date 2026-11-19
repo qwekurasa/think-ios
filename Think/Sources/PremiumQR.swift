@@ -136,7 +136,7 @@ struct PremiumQRScreen: View {
                 }
                 Spacer()
                 ShareLink(item: text) {
-                    Label("Поделиться текстом", systemImage: "square.and.arrow.up")
+                    SketchLabel("Поделиться текстом", symbol: "square.and.arrow.up")
                 }
                 .buttonStyle(ThinkActionStyle(filled: true))
                 .padding(.horizontal, 28).padding(.bottom, 28)
