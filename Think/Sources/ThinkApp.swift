@@ -294,11 +294,11 @@ struct RootScreen: View {
                 ThinkLogo()
                 Spacer()
                 HStack(spacing: 6) {
-                    ThinkStar().fill(Theme.yellow).frame(width: 15, height: 15)
+                    ThinkStar().stroke(Theme.ink, lineWidth: 1.2).frame(width: 15, height: 15)
                     Text("\(store.stars)").font(.custom("Noteworthy-Light", size: 14))
                 }
                 .foregroundStyle(Theme.ink).padding(.horizontal, 14).padding(.vertical, 10)
-                .background(Theme.panel, in: Capsule())
+                .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
             }.padding(.horizontal, 27).padding(.top, 12)
             Group {
                 if tab == 0 { HomeScreen(onNew: { editing = true }) }
@@ -322,7 +322,7 @@ struct RootScreen: View {
     private func tabButton(_ label: String, symbol: String, index: Int) -> some View {
         Button { withAnimation(.easeInOut(duration: 0.22)) { tab = index } } label: {
             VStack(spacing: 6) {
-                Image(systemName: symbol).font(.custom("Noteworthy-Bold", size: 21))
+                SketchGlyph(name: symbol).font(.custom("Noteworthy-Bold", size: 21))
                 Text(label).font(.custom("Noteworthy-Light", size: 10))
             }
             .foregroundStyle(tab == index ? Theme.ink : Theme.muted)
@@ -357,7 +357,7 @@ struct BreathingStar: View {
                 ThinkStar()
                     .fill(Theme.yellow)
                     .frame(width: 83 * breath, height: 83 * breath)
-                    .shadow(color: Theme.yellow.opacity(0.28), radius: 21 * breath)
+                    
             }
         }
         .frame(height: 320)
@@ -383,12 +383,12 @@ struct HomeScreen: View {
             Spacer()
             Button(action: onNew) {
                 HStack(spacing: 10) {
-                    Image(systemName: "plus").font(.custom("Noteworthy-Light", size: 16))
+                    SketchGlyph(name: "plus", size: 20).font(.custom("Noteworthy-Light", size: 16))
                     Text("Записать идею").font(.custom("Noteworthy-Light", size: 16))
                 }
                 .foregroundStyle(Theme.ink)
                 .frame(maxWidth: .infinity).padding(.vertical, 20)
-                .background(Theme.yellow, in: Capsule())
+                .background(Theme.yellow, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
             }
             .buttonStyle(.plain).padding(.horizontal, 30).padding(.bottom, 28)
         }.frame(maxWidth: .infinity)
@@ -432,7 +432,7 @@ struct IdeaEditor: View {
                         ThinkStar().fill(Theme.ink).frame(width: 16, height: 16)
                         Text("Сохранить мысль").font(.custom("Noteworthy-Light", size: 16))
                     }.frame(maxWidth: .infinity).padding(.vertical, 18)
-                        .foregroundStyle(Theme.ink).background(Theme.yellow, in: Capsule())
+                        .foregroundStyle(Theme.ink).background(Theme.yellow, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
                 }
                 .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .opacity(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
@@ -465,12 +465,12 @@ struct IdeaListScreen: View {
                 Text("Твои идеи").font(.custom("Noteworthy-Light", size: 37))
                 Spacer()
                 Button(action: onNew) {
-                    Image(systemName: "plus").foregroundStyle(Theme.ink)
-                        .frame(width: 43, height: 43).background(Theme.yellow, in: Circle())
+                    SketchGlyph(name: "plus", size: 20).foregroundStyle(Theme.ink)
+                        .frame(width: 43, height: 43).background(Theme.yellow, in: SketchOval(wobble: 0.9, seed: 5))
                 }
             }.foregroundStyle(Theme.ink)
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
+                SketchGlyph(name: "magnifyingglass", size: 18)
                 TextField("Найти мысль", text: $search)
                     .autocorrectionDisabled()
             }
@@ -479,7 +479,7 @@ struct IdeaListScreen: View {
             if store.ideas.isEmpty {
                 Spacer()
                 VStack(spacing: 12) {
-                    ThinkStar().fill(Theme.yellow).frame(width: 37, height: 37)
+                    ThinkStar().stroke(Theme.ink, lineWidth: 1.2).frame(width: 37, height: 37)
                     Text("Здесь будут твои мысли").font(.custom("Noteworthy-Light", size: 23))
                     Text("Одна записанная идея может изменить всё.")
                         .font(.custom("Noteworthy-Light", size: 14)).foregroundStyle(Theme.muted)
@@ -497,12 +497,12 @@ struct IdeaListScreen: View {
                                     HStack {
                                         Text(idea.updatedAt, style: .date)
                                         Spacer()
-                                        Image(systemName: "arrow.up.right")
+                                        SketchGlyph(name: "arrow.up.right", size: 17)
                                     }.font(.custom("Noteworthy-Light", size: 12)).foregroundStyle(Theme.muted)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(19)
-                                .background(Theme.panel, in: RoundedRectangle(cornerRadius: 20))
+                                .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 20))
                             }.buttonStyle(.plain)
                             .contextMenu {
                                 Button(role: .destructive) { store.delete(idea.id) } label: {
@@ -526,14 +526,14 @@ struct RewardScreen: View {
                 Text("Твои звёзды").font(.custom("Noteworthy-Light", size: 37))
                     .foregroundStyle(Theme.ink)
                 VStack(spacing: 9) {
-                    ThinkStar().fill(Theme.yellow).frame(width: 75, height: 75)
+                    ThinkStar().stroke(Theme.ink, lineWidth: 1.2).frame(width: 75, height: 75)
                     Text("\(store.stars)").font(.custom("Noteworthy-Light", size: 68))
                         .foregroundStyle(Theme.ink)
                     Text("искры вдохновения").font(.custom("Noteworthy-Light", size: 15))
                         .foregroundStyle(Theme.muted)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 40)
-                .background(Theme.panel, in: RoundedRectangle(cornerRadius: 27))
+                .background(Theme.panel, in: SketchRoundedRectangle(cornerRadius: 27))
                 Text("Как получить звёзды").font(.custom("Noteworthy-Light", size: 24))
                 rewardRow("Записать новую идею", "+5", "pencil")
                 rewardRow("Развить существующую", "+2", "sparkle")
@@ -545,7 +545,7 @@ struct RewardScreen: View {
     }
     private func rewardRow(_ title: String, _ amount: String, _ symbol: String) -> some View {
         HStack(spacing: 13) {
-            Image(systemName: symbol).frame(width: 37, height: 37).background(Theme.panel, in: Circle())
+            SketchGlyph(name: symbol).frame(width: 37, height: 37).background(Theme.panel, in: SketchOval(wobble: 0.9, seed: 5))
             Text(title).font(.custom("Noteworthy-Light", size: 15))
             Spacer()
             Text(amount).foregroundStyle(Theme.muted)
@@ -570,7 +570,7 @@ struct QRScreen: View {
         VStack(spacing: 25) {
             HStack {
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").frame(width: 42, height: 42).background(Theme.panel, in: Circle())
+                    SketchGlyph(name: "xmark", size: 19).frame(width: 42, height: 42).background(Theme.panel, in: SketchOval(wobble: 0.9, seed: 5))
                 }.foregroundStyle(Theme.ink)
                 Spacer()
                 ThinkLogo(compact: true)
@@ -582,8 +582,8 @@ struct QRScreen: View {
                 .font(.custom("Noteworthy-Light", size: 14)).foregroundStyle(Theme.muted)
                 .multilineTextAlignment(.center)
             ZStack {
-                RoundedRectangle(cornerRadius: 25).fill(.white)
-                    .shadow(color: .black.opacity(0.04), radius: 22, y: 5)
+                SketchRoundedRectangle(cornerRadius: 25).fill(.white)
+                    
                 if let qr {
                     Image(uiImage: qr)
                         .interpolation(.none).resizable().scaledToFit()
@@ -606,7 +606,7 @@ struct QRScreen: View {
                 Text("Отправить текст идеи")
                     .font(.custom("Noteworthy-Light", size: 16))
                     .frame(maxWidth: .infinity).padding(.vertical, 19)
-                    .background(Theme.yellow, in: Capsule())
+                    .background(Theme.yellow, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
                     .foregroundStyle(Theme.ink)
             }
             .padding(.bottom, 17)
