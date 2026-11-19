@@ -429,7 +429,7 @@ struct IdeaEditor: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 9) {
-                        ThinkStar().fill(Theme.ink).frame(width: 16, height: 16)
+                        ThinkStar().stroke(Theme.ink, lineWidth: 1.2).frame(width: 16, height: 16)
                         Text("Сохранить мысль").font(.custom("Noteworthy-Light", size: 16))
                     }.frame(maxWidth: .infinity).padding(.vertical, 18)
                         .foregroundStyle(Theme.ink).background(Theme.yellow, in: SketchRoundedRectangle(cornerRadius: 28, seed: 4))
