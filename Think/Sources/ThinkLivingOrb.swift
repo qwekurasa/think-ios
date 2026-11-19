@@ -23,7 +23,7 @@ struct ThinkLivingOrb: View {
                     let alpha = [0.17, 0.72, 0.31][pass]
                     let width = [2.3, 1.45, 0.85][pass]
                     context.stroke(path, with: .color(graphite.opacity(alpha)),
-                                   style: StrokeStyle(lineWidth: width,
+                                   style: StrokeStyle(lineWidth: CGFloat(width),
                                                       lineCap: .round, lineJoin: .round))
                 }
 
@@ -114,7 +114,7 @@ struct ThinkLivingOrb: View {
             let n = CGFloat(index)
             let x = center.x - radius * 0.60 + n * radius * 0.055
             let y = center.y - radius * 0.52 + n * radius * 0.014
-            let length = radius * (0.12 + 0.035 * sin(Double(index) * 0.9))
+            let length = radius * CGFloat(0.12 + 0.035 * sin(Double(index) * 0.9))
             var stroke = Path()
             stroke.move(to: CGPoint(x: x, y: y))
             stroke.addLine(to: CGPoint(x: x + length, y: y - length * 0.20))
