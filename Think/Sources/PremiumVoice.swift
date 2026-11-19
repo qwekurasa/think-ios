@@ -143,56 +143,84 @@ struct ThinkWaveform: View {
 struct ThinkMicrophone: View {
     var level: CGFloat
     var listening: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let pulse = CGFloat(1 + sin(time * 2.1) * 0.018 + Double(level) * 0.04)
-            Canvas { context, size in
-                let center = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
-                let radius = min(size.width, size.height) * 0.34 * CGFloat(pulse)
-                for pass in 0..<2 {
-                    let path = roughCircle(center: center, radius: radius * CGFloat(1 + Double(pass) * 0.10),
-                                           time: time, seed: Double(pass) * 2.1)
-                    context.stroke(path, with: .color(Theme.ink.opacity(listening ? (pass == 0 ? 0.66 : 0.24) : (pass == 0 ? 0.46 : 0.18))),
-                                   style: StrokeStyle(lineWidth: pass == 0 ? 1.35 : 0.75,
-                                                      lineCap: .round))
-                }
-                var mic = Path()
-                mic.move(to: CGPoint(x: center.x - radius * 0.13, y: center.y - radius * 0.34))
-                mic.addQuadCurve(to: CGPoint(x: center.x + radius * 0.13, y: center.y - radius * 0.34),
-                                 control: CGPoint(x: center.x, y: center.y - radius * 0.46))
-                mic.addLine(to: CGPoint(x: center.x + radius * 0.13, y: center.y + radius * 0.12))
-                mic.addQuadCurve(to: CGPoint(x: center.x - radius * 0.13, y: center.y + radius * 0.12),
-                                 control: CGPoint(x: center.x, y: center.y + radius * 0.26))
-                mic.closeSubpath()
-                mic.move(to: CGPoint(x: center.x - radius * 0.28, y: center.y + radius * 0.02))
-                mic.addQuadCurve(to: CGPoint(x: center.x + radius * 0.28, y: center.y + radius * 0.02),
-                                 control: CGPoint(x: center.x, y: center.y + radius * 0.48))
-                mic.move(to: CGPoint(x: center.x, y: center.y + radius * 0.34))
-                mic.addLine(to: CGPoint(x: center.x, y: center.y + radius * 0.49))
-                mic.move(to: CGPoint(x: center.x - radius * 0.18, y: center.y + radius * 0.49))
-                mic.addLine(to: CGPoint(x: center.x + radius * 0.18, y: center.y + radius * 0.49))
-                context.stroke(mic, with: .color(Theme.ink),
-                               style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round))
-            }
-            .scaleEffect(pulse)
-        }
-        .frame(width: 205, height: 205)
-        .accessibilityLabel(listening ? "Микрофон включён" : "Микрофон выключен")
-    }
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            Canvas(opaque: false) { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let diameter = min(size.width, size.height)
+                let radius = diameter * 0.386
+                let breathe = listening ? CGFloat(1 + sin(time * 1.7) * 0.017 + Double(level) * 0.026) : 1
 
-    private func roughCircle(center: CGPoint, radius: CGFloat, time: Double, seed: Double) -> Path {
-        var path = Path()
-        for index in 0...90 {
-            let angle = Double(index) / 90 * 2 * Double.pi
-            let wobble = 1 + 0.018 * sin(angle * 7 + seed + time * 0.25)
-                + 0.009 * cos(angle * 13 + seed * 2)
-            let point = CGPoint(x: center.x + CGFloat(cos(angle) * Double(radius) * wobble),
-                                y: center.y + CGFloat(sin(angle) * Double(radius) * wobble))
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                // A single, deliberately broken, hand-inked button contour.
+                var border = Path()
+                let count = 108
+                for i in 0...count {
+                    let angle = -2.55 + Double(i) / Double(count) * (2 * Double.pi - 0.22)
+                    let uneven = 1 + 0.012 * sin(angle * 5 + 0.7)
+                                   + 0.007 * sin(angle * 13 + time * 0.18)
+                    let r = Double(radius * breathe) * uneven
+                    let p = CGPoint(x: center.x + CGFloat(cos(angle) * r),
+                                    y: center.y + CGFloat(sin(angle) * r))
+                    if i == 0 { border.move(to: p) } else { border.addLine(to: p) }
+                }
+                context.stroke(border, with: .color(Theme.ink.opacity(listening ? 0.79 : 0.43)),
+                               style: StrokeStyle(lineWidth: 1.35, lineCap: .round))
+
+                // Microphone capsule, stem and U-shaped suspension in one ink line.
+                let unit = radius
+                var mic = Path()
+                mic.move(to: CGPoint(x: center.x - unit * 0.15, y: center.y - unit * 0.43))
+                mic.addQuadCurve(to: CGPoint(x: center.x + unit * 0.15, y: center.y - unit * 0.43),
+                                 control: CGPoint(x: center.x, y: center.y - unit * 0.60))
+                mic.addLine(to: CGPoint(x: center.x + unit * 0.15, y: center.y + unit * 0.06))
+                mic.addQuadCurve(to: CGPoint(x: center.x - unit * 0.15, y: center.y + unit * 0.06),
+                                 control: CGPoint(x: center.x, y: center.y + unit * 0.22))
+                mic.closeSubpath()
+                mic.move(to: CGPoint(x: center.x - unit * 0.30, y: center.y - unit * 0.03))
+                mic.addCurve(to: CGPoint(x: center.x + unit * 0.30, y: center.y - unit * 0.02),
+                             control1: CGPoint(x: center.x - unit * 0.32, y: center.y + unit * 0.53),
+                             control2: CGPoint(x: center.x + unit * 0.34, y: center.y + unit * 0.49))
+                mic.move(to: CGPoint(x: center.x + unit * 0.01, y: center.y + unit * 0.39))
+                mic.addLine(to: CGPoint(x: center.x, y: center.y + unit * 0.59))
+                mic.move(to: CGPoint(x: center.x - unit * 0.17, y: center.y + unit * 0.60))
+                mic.addQuadCurve(to: CGPoint(x: center.x + unit * 0.19, y: center.y + unit * 0.60),
+                                 control: CGPoint(x: center.x, y: center.y + unit * 0.57))
+                context.stroke(mic, with: .color(Theme.ink),
+                               style: StrokeStyle(lineWidth: 2.05, lineCap: .round, lineJoin: .round))
+
+                if listening {
+                    // Small reactive ink lines, not an animated rectangular frame.
+                    for side in [-1.0, 1.0] {
+                        let x = center.x + CGFloat(side) * unit * 0.54
+                        let swing = CGFloat(0.02 + Double(level) * 0.06 + 0.012 * sin(time * 2.5))
+                        var wave = Path()
+                        wave.move(to: CGPoint(x: x, y: center.y - unit * (0.13 + swing)))
+                        wave.addQuadCurve(to: CGPoint(x: x, y: center.y + unit * (0.15 + swing)),
+                                          control: CGPoint(x: x + CGFloat(side) * unit * 0.11,
+                                                           y: center.y))
+                        context.stroke(wave, with: .color(Theme.muted.opacity(0.66)),
+                                       style: StrokeStyle(lineWidth: 1.15, lineCap: .round))
+                    }
+                } else {
+                    // Clearly struck-through mic while paused or permission is off.
+                    let from = CGPoint(x: center.x - unit * 0.43, y: center.y - unit * 0.54)
+                    let to = CGPoint(x: center.x + unit * 0.47, y: center.y + unit * 0.55)
+                    var slash = Path()
+                    slash.move(to: from)
+                    slash.addQuadCurve(to: to, control: CGPoint(x: center.x + unit * 0.06,
+                                                                 y: center.y - unit * 0.02))
+                    context.stroke(slash, with: .color(.white),
+                                   style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    context.stroke(slash, with: .color(Theme.ink),
+                                   style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                }
+            }
         }
-        return path
+        .frame(width: 174, height: 174)
+        .accessibilityLabel(listening ? "Приостановить запись" : "Продолжить запись")
     }
 }
 
@@ -273,7 +301,6 @@ struct PremiumVoiceScreen: View {
     var body: some View {
         ZStack {
             Theme.paper.ignoresSafeArea()
-            ReactiveEdgeGlow(level: speech.level, listening: speech.listening)
             VStack(spacing: 0) {
                 HStack {
                     Button { speech.stop(); onCancel() } label: {
