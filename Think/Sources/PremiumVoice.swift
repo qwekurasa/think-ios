@@ -277,7 +277,7 @@ struct PremiumVoiceScreen: View {
             VStack(spacing: 0) {
                 HStack {
                     Button { speech.stop(); onCancel() } label: {
-                        Image(systemName: "xmark")
+                        SketchGlyph(name: "xmark", size: 19)
                             .font(.custom("Noteworthy-Light", size: 17))
                             .frame(width: 42, height: 42)
                     }
@@ -353,7 +353,7 @@ struct PremiumVoiceScreen: View {
                     speech.stop()
                     onSwitchToText(fullText)
                 } label: {
-                    Label("Перейти к тексту", systemImage: "keyboard")
+                    SketchLabel("Перейти к тексту", symbol: "keyboard")
                         .font(.custom("Noteworthy-Light", size: 13))
                         .foregroundStyle(Theme.muted)
                         .padding(.vertical, 16)
