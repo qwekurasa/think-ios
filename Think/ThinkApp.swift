@@ -555,14 +555,17 @@ struct SpeechPhrases {
     private var previousEnd = 0.0
     private var lastEvent: Double?
     mutating func receive(_ words: String, start: Double, end: Double, at now: Double) -> String {
-        let sameBeginning = words.lowercased().split(separator:" ").first == current.lowercased().split(separator:" ").first
+        let previous = current.lowercased().split(separator:" ")
+        let incoming = words.lowercased().split(separator:" ")
+        let extended = incoming.starts(with:previous)
         let shifted = start >= previousEnd - 0.04 && start > (firstTime ?? start)+0.18
-        let resumed = now - (lastEvent ?? now) > 1.0 && !sameBeginning
-        if !current.isEmpty && (shifted || resumed) && !words.lowercased().hasPrefix(current.lowercased()) {
+        let clockReset = end + 0.1 < previousEnd
+        let quiet = now - (lastEvent ?? now) > 1.0
+        let resumed = quiet && (clockReset || incoming.first != previous.first)
+        if !current.isEmpty && (shifted || (resumed && !extended)) {
             frozen = [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
         }
         current = words; firstTime = start; previousEnd = end; lastEvent = now
         return [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
     }
 }
-
