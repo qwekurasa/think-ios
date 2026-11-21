@@ -729,7 +729,7 @@ struct JournalSetup: View {
             Spacer(minLength:4)
             controls
         }.padding(.bottom,16).foregroundStyle(.white)
-         .background(.black.ignoresSafeArea()).opacity(leaving ? 0 : 1)
+         .background(Color.black.ignoresSafeArea()).opacity(leaving ? 0 : 1)
          .buttonStyle(.plain).preferredColorScheme(.dark)
     }
 
