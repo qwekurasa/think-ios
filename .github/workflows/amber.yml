@@ -1,0 +1,33 @@
+name: Think Amber IPA
+on:
+  push:
+    branches: [amber-iphone]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  iphone:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build for iPhone
+        run: |
+          xcodebuild -project Think.xcodeproj -target Think -configuration Release -sdk iphoneos ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/iphone" build
+      - name: Package and verify IPA
+        run: |
+          mkdir -p "$RUNNER_TEMP/package/Payload"
+          ditto "$RUNNER_TEMP/iphone/Think.app" "$RUNNER_TEMP/package/Payload/Think.app"
+          cd "$RUNNER_TEMP/package"
+          APP=Payload/Think.app
+          EXEC=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$APP/Info.plist")
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleSupportedPlatforms:0' "$APP/Info.plist")" = iPhoneOS
+          lipo -verify_arch arm64 "$APP/$EXEC"
+          zip -qry "$GITHUB_WORKSPACE/Think.ipa" Payload
+          unzip -tq "$GITHUB_WORKSPACE/Think.ipa"
+          shasum -a 256 "$GITHUB_WORKSPACE/Think.ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Think-Amber-Sideloadly
+          path: Think.ipa
+          if-no-files-found: error
