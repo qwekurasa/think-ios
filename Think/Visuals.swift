@@ -21,10 +21,11 @@ struct SparkShape: Shape {
 
 
 enum AppPalette: String, CaseIterable, Identifiable {
-    case silver, ice, lavender, rose, amber, sage, mint, coral
+    case white, silver, ice, lavender, rose, amber, sage, mint, coral
     var id: String { rawValue }
     var name: String {
         switch self {
+        case .white: "Белый"
         case .silver: "Серебро"
         case .ice: "Лёд"
         case .lavender: "Лаванда"
@@ -37,6 +38,7 @@ enum AppPalette: String, CaseIterable, Identifiable {
     }
     var accent: Color {
         switch self {
+        case .white: .white
         case .silver: Color(red:0.84,green:0.85,blue:0.88)
         case .ice: Color(red:0.67,green:0.76,blue:0.94)
         case .lavender: Color(red:0.79,green:0.71,blue:1)
@@ -48,7 +50,7 @@ enum AppPalette: String, CaseIterable, Identifiable {
         }
     }
     var ink: Color { accent }
-    var muted: Color { accent.opacity(0.63) }
+    var muted: Color { self == .white ? .white : accent.opacity(0.63) }
     var sheet: Color { accent.opacity(0.032).overBlack }
     var card: Color { accent.opacity(0.105).overBlack }
 }
@@ -61,7 +63,7 @@ private extension Color {
     }
 }
 
-private struct PaletteKey: EnvironmentKey { static let defaultValue = AppPalette.ice }
+private struct PaletteKey: EnvironmentKey { static let defaultValue = AppPalette.white }
 extension EnvironmentValues {
     var appPalette: AppPalette {
         get { self[PaletteKey.self] }

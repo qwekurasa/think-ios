@@ -90,8 +90,8 @@ struct Studio: View {
     @State private var bloom: Bloom?
     @State private var showFlowers = false
     @AppStorage("think.draft.bloom") private var draftBloom = ""
-    @AppStorage("think.palette") private var paletteName = AppPalette.ice.rawValue
-    private var palette: AppPalette { AppPalette(rawValue:paletteName) ?? .ice }
+    @AppStorage("think.palette") private var paletteName = AppPalette.white.rawValue
+    private var palette: AppPalette { AppPalette(rawValue:paletteName) ?? .white }
     @AppStorage("think.draft.flower") private var draftFlower = false
     @State private var listRequest = 0
     @State private var dismissRequest = 0
@@ -117,7 +117,9 @@ struct Studio: View {
                     cover = newCover
                     editingCover = false
                     noteVisit()
-                }.transition(.opacity)
+                }.environment(\.appPalette, cover == nil ? .white : palette)
+                 .tint(cover == nil ? .white : palette.accent)
+                 .transition(.opacity)
             } else if page == .collection { archive.transition(.opacity) }
             else if page == .editor { editor.transition(.opacity.combined(with: .offset(y: reduced ? 0 : 12))) }
             else if page == .settings { settings.transition(.opacity) }
@@ -160,6 +162,7 @@ struct Studio: View {
         .sheet(isPresented: $showRewards) {
             rewards.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
         }
+        .font(.body.monospaced())
         .foregroundStyle(palette.ink).environment(\.appPalette,palette)
     }
     private func persist(_ next: Notebook) -> Bool {
@@ -180,7 +183,7 @@ struct Studio: View {
         voice.cancel()
         data = Data(); coverData = Data()
         draft = ""; draftStep = ""; draftBloom = ""; draftFlower = false
-        paletteName = AppPalette.ice.rawValue
+        paletteName = AppPalette.white.rawValue
         UserDefaults.standard.removeObject(forKey:"think.draft.audio")
         let voiceDirectory = URL.applicationSupportDirectory.appending(path:"ThinkVoice",directoryHint:.isDirectory)
         try? FileManager.default.removeItem(at:voiceDirectory)
@@ -240,7 +243,7 @@ struct Studio: View {
                 }.frame(maxWidth:330).frame(height:344)
             }
             Text("запиши идею пока не забыл")
-                .font(.subheadline).foregroundStyle(palette.muted).padding(.horizontal,20)
+                .font(.subheadline.monospaced()).foregroundStyle(palette.muted).padding(.horizontal,20)
                 .multilineTextAlignment(.center)
             Spacer(minLength:12)
         }.frame(maxWidth:.infinity)
@@ -263,7 +266,7 @@ struct Studio: View {
         } label: {
             VStack(spacing:4) {
                 Image(systemName:icon).font(.system(size:19,weight:page == tab ? .semibold : .regular))
-                Text(title).font(.caption2.weight(page == tab ? .semibold : .regular)).lineLimit(1)
+                Text(title).font(.caption2.weight(page == tab ? .semibold : .regular).monospaced()).lineLimit(1)
             }.foregroundStyle(page == tab ? palette.ink : palette.muted)
              .frame(maxWidth:.infinity,minHeight:49).contentShape(Rectangle())
         }.accessibilityAddTraits(page == tab ? .isSelected : [])
@@ -272,18 +275,18 @@ struct Studio: View {
     private var settings: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:22) {
-                Text("Настройки").font(.largeTitle.bold())
+                Text("Настройки").font(.largeTitle.bold().monospaced())
                 if let cover {
                     Button { editingCover = true } label: {
                         HStack(spacing:16) {
                             JournalModel(cover:cover).frame(width:60,height:74)
                                 .frame(width:58,height:74).allowsHitTesting(false).accessibilityHidden(true)
                             VStack(alignment:.leading,spacing:5) {
-                                Text(cover.title).font(.headline).lineLimit(2)
-                                Text("Название и обложка").font(.subheadline).foregroundStyle(palette.muted)
+                                Text(cover.title).font(.headline.monospaced()).lineLimit(2)
+                                Text("Название и обложка").font(.subheadline.monospaced()).foregroundStyle(palette.muted)
                             }
                             Spacer()
-                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(palette.muted)
+                            Image(systemName:"chevron.right").font(.caption.monospaced()).foregroundStyle(palette.muted)
                         }.padding(15).background(palette.card,in:RoundedRectangle(cornerRadius:20))
                     }
                 }
@@ -294,14 +297,14 @@ struct Studio: View {
                             Label("Звёзды",systemImage:"sparkle")
                             Spacer()
                             Text("\(book.balance)").monospacedDigit().foregroundStyle(palette.muted)
-                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(palette.muted)
+                            Image(systemName:"chevron.right").font(.caption.monospaced()).foregroundStyle(palette.muted)
                         }.padding(17)
                     }
                 }.background(palette.card,in:RoundedRectangle(cornerRadius:20))
                 Button(role:.destructive) { confirmReset = true } label: {
                     Label("Сбросить приложение",systemImage:"arrow.counterclockwise")
                         .frame(maxWidth:.infinity,alignment:.leading).padding(17)
-                        .foregroundStyle(.red.opacity(0.9)).background(palette.card,in:RoundedRectangle(cornerRadius:20))
+                        .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:20))
                 }
             }.padding(22)
         }.foregroundStyle(palette.ink).background(palette.sheet.ignoresSafeArea())
@@ -312,7 +315,7 @@ struct Studio: View {
     }
     private var paletteSettings: some View {
         VStack(alignment:.leading,spacing:12) {
-            Text("Цвет приложения").font(.headline)
+            Text("Цвет приложения").font(.headline.monospaced())
             LazyVGrid(columns:[GridItem(.adaptive(minimum:66),spacing:10)],spacing:13) {
                 ForEach(AppPalette.allCases) { option in
                     let selected = option == palette
@@ -321,8 +324,8 @@ struct Studio: View {
                     } label: {
                         VStack(spacing:6) {
                             Circle().fill(option.accent).frame(width:29,height:29)
-                                .overlay { if selected { Image(systemName:"checkmark").font(.caption.bold()).foregroundStyle(palette.sheet) } }
-                            Text(option.name).font(.caption2).lineLimit(1)
+                                .overlay { if selected { Image(systemName:"checkmark").font(.caption.bold().monospaced()).foregroundStyle(palette.sheet) } }
+                            Text(option.name).font(.caption2.monospaced()).lineLimit(1).minimumScaleFactor(0.8)
                         }.frame(maxWidth:.infinity,minHeight:54)
                     }.accessibilityAddTraits(selected ? .isSelected : [])
                 }
@@ -333,13 +336,13 @@ struct Studio: View {
     private var flowers: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:16) {
-                Text("Цветок идеи").font(.title2.bold())
+                Text("Цветок идеи").font(.title2.bold().monospaced())
                 LazyVGrid(columns:[GridItem(.adaptive(minimum:85),spacing:10)],spacing:12) {
                     ForEach(Bloom.allCases) { option in
                         Button { chooseFlower(option) } label: {
                             VStack(spacing:5) {
                                 Flower(kind:option).frame(width:36,height:52)
-                                Text(option.name).font(.caption).lineLimit(1)
+                                Text(option.name).font(.caption.monospaced()).lineLimit(1)
                             }.frame(maxWidth:.infinity,minHeight:84)
                              .background(palette.card,in:RoundedRectangle(cornerRadius:12))
                              .overlay { RoundedRectangle(cornerRadius:12).strokeBorder(bloom == option ? palette.accent : .clear) }
@@ -364,9 +367,9 @@ struct Studio: View {
                     Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }.accessibilityLabel("Назад")
                 Spacer()
-                Text(editing == nil ? "Новая мысль" : "Редактирование").font(.subheadline).foregroundStyle(palette.muted)
+                Text(editing == nil ? "Новая мысль" : "Редактирование").font(.subheadline.monospaced()).foregroundStyle(palette.muted)
                 Spacer()
-                Button("Готово",action:save).font(.subheadline.weight(.semibold)).padding(.vertical,3)
+                Button("Готово",action:save).font(.subheadline.weight(.semibold).monospaced()).padding(.vertical,3)
                     .frame(minHeight:44).foregroundStyle(palette.accent)
                     .disabled(voice.waiting || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
             }
@@ -374,7 +377,7 @@ struct Studio: View {
             ZStack(alignment: .topLeading) {
                 if text.isEmpty { Text(voice.listening ? "Слушаю…" : "О чём ты думаешь?").foregroundStyle(palette.muted).padding(.top,8).padding(.leading,5).allowsHitTesting(false) }
                 IdeaTextView(text:$text,listRequest:listRequest,dismissRequest:dismissRequest) { voice.cancel() }
-            }.font(.system(.title2))
+            }.font(.system(.title2,design:.monospaced))
              .onChange(of:text) { _,value in if editing == nil { draft = value } }
             HStack(spacing:12) {
                 Button { voice.cancel(); listRequest += 1 } label: {
@@ -422,15 +425,15 @@ struct Studio: View {
                 }.foregroundStyle(palette.muted)
             }
             if let idea = detail {
-                Text("Идея").font(.largeTitle.bold())
+                Text("Идея").font(.largeTitle.bold().monospaced())
                 ScrollView(showsIndicators:false) {
                     VStack(alignment: .leading, spacing: 20) {
                         if let decoration = idea.decoration { Flower(kind:decoration).frame(width:42,height:58).frame(maxWidth:.infinity) }
-                        Text("Дата создания").font(.caption).foregroundStyle(palette.accent)
-                        Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.subheadline)
+                        Text("Дата создания").font(.caption.monospaced()).foregroundStyle(palette.accent)
+                        Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.subheadline.monospaced())
                         Divider()
                         Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                            .font(.system(.title3)).textSelection(.enabled)
+                            .font(.system(.title3,design:.monospaced)).textSelection(.enabled)
                         if !idea.step.isEmpty { Text(idea.step) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
                      .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:8))
@@ -444,7 +447,7 @@ struct Studio: View {
                     calendarOpen = true
                 } label: {
                     Label("Календарь",systemImage:"calendar")
-                        .font(.subheadline.weight(.medium))
+                        .font(.subheadline.weight(.medium).monospaced())
                         .frame(minHeight:44)
                 }.foregroundStyle(palette.accent).frame(maxWidth:.infinity)
                 if let dayFilter {
@@ -459,13 +462,24 @@ struct Studio: View {
                 if !book.ideas.isEmpty {
                     HStack {
                         Image(systemName:"magnifyingglass").foregroundStyle(palette.muted)
-                        TextField("Поиск по идеям",text:$search).submitLabel(.search)
+                        TextField("Поиск по идеям",text:$search,prompt:Text("Поиск по идеям").foregroundStyle(palette.muted)).submitLabel(.search)
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
                     }.padding(.horizontal,14).frame(minHeight:44).background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 }
-                Picker("Состояние идей",selection:$section) {
-                    ForEach(IdeaSection.allCases) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented)
+                HStack(spacing:4) {
+                    ForEach(IdeaSection.allCases) { option in
+                        Button { section = option } label: {
+                            Text(option.rawValue)
+                                .font(.footnote.weight(section == option ? .semibold : .regular).monospaced())
+                                .lineLimit(1).minimumScaleFactor(0.75)
+                                .padding(.horizontal,4).frame(maxWidth:.infinity,minHeight:44)
+                                .background(palette.accent.opacity(section == option ? 0.18 : 0),
+                                            in:RoundedRectangle(cornerRadius:8))
+                                .contentShape(Rectangle())
+                        }.accessibilityAddTraits(section == option ? .isSelected : [])
+                    }
+                }.padding(4).background(palette.card,in:RoundedRectangle(cornerRadius:12))
+                 .accessibilityElement(children:.contain).accessibilityLabel("Состояние идей")
                 ScrollView(showsIndicators:false) {
                     LazyVStack(alignment:.leading,spacing:12) {
                         let sections = journalDays
@@ -474,7 +488,7 @@ struct Studio: View {
                                 .foregroundStyle(palette.muted).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
-                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.subheadline.weight(.semibold)).padding(.top,8)
+                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.subheadline.weight(.semibold).monospaced()).padding(.top,8)
                             ForEach(section.value) { idea in
                                 Button {
                                     detail = idea
@@ -490,9 +504,9 @@ struct Studio: View {
                                                 if idea.section == .active, let date = idea.pinnedUntil, date > Date() {
                                                     Image(systemName:"pin.fill").accessibilityLabel("Закреплена")
                                                 }
-                                            }.font(.caption).foregroundStyle(palette.ink.opacity(0.7))
+                                            }.font(.caption.monospaced()).foregroundStyle(palette.ink.opacity(0.7))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                                                .font(.system(.title3)).lineLimit(3)
+                                                .font(.system(.title3,design:.monospaced)).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
                                         Image(systemName:"chevron.right").foregroundStyle(palette.accent)
                                     }.multilineTextAlignment(.leading).padding(16).foregroundStyle(palette.ink)
@@ -537,7 +551,7 @@ struct Studio: View {
 
                 if let until = idea.pinnedUntil, until > Date() {
                     Label { Text(until,format:.dateTime.day().month(.wide).year()) } icon: { Image(systemName:"pin.fill") }
-                        .font(.subheadline).foregroundStyle(palette.muted)
+                        .font(.subheadline.monospaced()).foregroundStyle(palette.muted)
                         .accessibilityLabel("Закреплена до \(until.formatted(date:.long,time:.omitted))")
                 } else {
                     Button { confirmPin = true } label: {
@@ -565,8 +579,8 @@ struct Studio: View {
     private var rewards: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Мои звёзды").font(.largeTitle.bold())
-                HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit()) }
+                Text("Мои звёзды").font(.largeTitle.bold().monospaced())
+                HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit().monospaced()) }
                 Text("За запись — от 1 до 3 звёзд. За выполненную идею — ещё \(Notebook.completionReward).")
                 Text("За \(Notebook.pinPrice) звёзд можно закрепить идею на 30 дней.")
                 Text("После 7 дней без входа незакреплённые идеи переходят в архив. Оттуда их можно вернуть.").foregroundStyle(palette.muted)
@@ -699,7 +713,7 @@ struct IdeaTextView: UIViewRepresentable {
         v.backgroundColor = .clear
         v.delegate = context.coordinator
         v.adjustsFontForContentSizeCategory = true
-        v.font = UIFontMetrics(forTextStyle:.title2).scaledFont(for:UIFont.systemFont(ofSize:21))
+        v.font = UIFontMetrics(forTextStyle:.title2).scaledFont(for:UIFont.monospacedSystemFont(ofSize:21,weight:.regular))
         v.textContainerInset = UIEdgeInsets(top:8,left:0,bottom:8,right:0)
         v.accessibilityLabel = "Текст идеи"
         v.text = text
@@ -868,7 +882,7 @@ struct NotebookFace: View {
             LinearGradient(colors:[.white.opacity(0.09),.clear,.black.opacity(0.13)],
                            startPoint:.topLeading,endPoint:.bottomTrailing)
             if !cover.title.isEmpty {
-                Text(cover.title).font(.system(size:23,weight:.semibold))
+                Text(cover.title).font(.system(size:23,weight:.semibold,design:.monospaced))
                     .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).foregroundStyle(palette.ink)
                     .shadow(color:.black.opacity(0.78),radius:3,y:1)
                     .padding(.horizontal,19).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top).padding(.top,40)
@@ -939,7 +953,7 @@ struct JournalSetup: View {
             } label: { Image(systemName:"chevron.left").frame(width:44,height:44) }
             .accessibilityLabel("Назад")
             Spacer()
-            Text(stage == .title ? "Название" : "Обложка").font(.subheadline.weight(.medium))
+            Text(stage == .title ? "Название" : "Обложка").font(.subheadline.weight(.medium).monospaced())
             Spacer()
             Color.clear.frame(width:44,height:44).accessibilityHidden(true)
         }.padding(.horizontal,20)
@@ -949,14 +963,14 @@ struct JournalSetup: View {
         switch stage {
         case .intro:
             Button { change(.title) } label: {
-                Text("создай свой дневник идей").font(.callout)
+                Text("создай свой дневник идей").font(.callout.monospaced())
                     .padding(.horizontal,19).frame(minHeight:50)
                     .background(palette.card,in:Capsule())
             }.opacity(promptVisible ? 1 : 0)
              .offset(y:promptVisible || reduced ? 0 : 16).accessibilityHidden(!promptVisible)
         case .title:
             VStack(spacing:12) {
-                TextField("Название дневника",text:$cover.title)
+                TextField("Название дневника",text:$cover.title,prompt:Text("Название дневника").foregroundStyle(palette.ink))
                     .focused($typing).submitLabel(.next).onSubmit(next)
                     .onChange(of:cover.title) { _, title in
                         if title.count > 55 { cover.title = String(title.prefix(55)) }
@@ -974,7 +988,7 @@ struct JournalSetup: View {
                     Label(loading ? "Загрузка…" : "Фото из галереи",systemImage:"photo").frame(minHeight:44)
                 }
                 if cover.photo != nil {
-                    Button("Убрать фото") { selection = nil; cover.photo = nil }.font(.footnote)
+                    Button("Убрать фото") { selection = nil; cover.photo = nil }.font(.footnote.monospaced())
                 }
                 Button(existing == nil ? "Создать дневник" : "Сохранить обложку",action:complete)
                     .buttonStyle(JournalPrimary()).disabled(loading || leaving)
@@ -1043,7 +1057,7 @@ struct JournalPrimary: ButtonStyle {
     @Environment(\.appPalette) private var palette
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.body.weight(.semibold)).frame(maxWidth:.infinity,minHeight:49)
+        configuration.label.font(.body.weight(.semibold).monospaced()).frame(maxWidth:.infinity,minHeight:49)
             .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:16))
             .overlay { RoundedRectangle(cornerRadius:16).strokeBorder(palette.accent.opacity(0.28)).allowsHitTesting(false) }
             .opacity(!enabled ? 0.38 : configuration.isPressed ? 0.72 : 1)
@@ -1113,9 +1127,9 @@ struct IdeaCalendar: View {
                     Spacer()
                     Button("Показать идеи") {
                         if mode == .year { applyYear(year) } else { applyDay() }
-                    }.font(.subheadline.weight(.semibold)).padding(.horizontal,12)
+                    }.font(.subheadline.weight(.semibold).monospaced()).padding(.horizontal,12)
                      .frame(minHeight:38).background(palette.accent.opacity(0.16),in:Capsule())
-                }.font(.subheadline)
+                }.font(.subheadline.monospaced())
             }.padding(17)
              .background {
                  RoundedRectangle(cornerRadius:24).fill(
@@ -1137,25 +1151,25 @@ struct IdeaCalendar: View {
         let shown = mode == .month ? displayedMonth : highlighted
         return HStack(alignment:.lastTextBaseline,spacing:8) {
             if mode == .year {
-                Text(String(year)).font(.system(size:45,weight:.light)).monospacedDigit()
+                Text(String(year)).font(.system(size:45,weight:.light,design:.monospaced)).monospacedDigit()
             } else {
                 VStack(alignment:.leading,spacing:3) {
                     Text(shown.formatted(.dateTime.month(.wide).locale(Locale(identifier:"ru"))).capitalized)
-                        .font(.system(size:36,weight:.medium)).lineLimit(1).minimumScaleFactor(0.65)
-                    Text(String(cal.component(.year,from:shown))).font(.caption).foregroundStyle(palette.muted)
+                        .font(.system(size:36,weight:.medium,design:.monospaced)).lineLimit(1).minimumScaleFactor(0.65)
+                    Text(String(cal.component(.year,from:shown))).font(.caption.monospaced()).foregroundStyle(palette.muted)
                 }
                 Spacer()
                 Text(String(cal.component(.day,from:highlighted)))
-                    .font(.system(size:57,weight:.light)).monospacedDigit()
+                    .font(.system(size:57,weight:.light,design:.monospaced)).monospacedDigit()
             }
         }.frame(maxWidth:.infinity,alignment:.leading)
     }
 
     private func modeButton(_ label:String,_ next:Mode) -> some View {
         Button { changeMode(next) } label: {
-            Text(label).font(.subheadline.weight(.medium)).frame(maxWidth:.infinity,minHeight:36)
-                .foregroundStyle(mode == next ? palette.sheet : palette.ink)
-                .background(mode == next ? palette.accent : Color.clear,in:RoundedRectangle(cornerRadius:9))
+            Text(label).font(.subheadline.weight(.medium).monospaced()).frame(maxWidth:.infinity,minHeight:36)
+                .foregroundStyle(palette.ink)
+                .background(palette.accent.opacity(mode == next ? 0.24 : 0),in:RoundedRectangle(cornerRadius:9))
         }.accessibilityAddTraits(mode == next ? .isSelected : [])
     }
 
@@ -1176,8 +1190,8 @@ struct IdeaCalendar: View {
                         } label: {
                             Text(String(candidate)).monospacedDigit()
                                 .frame(maxWidth:.infinity,minHeight:44)
-                                .foregroundStyle(year == candidate ? palette.sheet : palette.ink)
-                                .background(year == candidate ? palette.accent : palette.card,
+                                .foregroundStyle(palette.ink)
+                                .background(year == candidate ? palette.accent.opacity(0.24) : palette.card,
                                             in:RoundedRectangle(cornerRadius:10))
                         }.id(candidate).accessibilityAddTraits(year == candidate ? .isSelected : [])
                     }
@@ -1213,9 +1227,9 @@ struct IdeaCalendar: View {
                         Button { settle(offset:offset,stride:stride) } label: {
                             VStack(spacing:5) {
                                 Text(date,format:.dateTime.weekday(.abbreviated))
-                                    .font(.caption).foregroundStyle(palette.muted)
+                                    .font(.caption.monospaced()).foregroundStyle(palette.muted)
                                 Text(String(cal.component(.day,from:date)))
-                                    .font(.body.weight(offset == displacement ? .semibold : .regular)).monospacedDigit()
+                                    .font(.body.weight(offset == displacement ? .semibold : .regular).monospaced()).monospacedDigit()
                                     .frame(height:36)
                                 Circle().fill(palette.ink).frame(width:3,height:3)
                                     .opacity(recorded.contains(cal.startOfDay(for:date)) ? 1 : 0)
@@ -1289,12 +1303,12 @@ struct IdeaCalendar: View {
             HStack {
                 monthButton(-1, icon:"chevron.left")
                 Spacer()
-                Text(displayedMonth,format:.dateTime.month(.wide).year()).font(.callout.weight(.semibold))
+                Text(displayedMonth,format:.dateTime.month(.wide).year()).font(.callout.weight(.semibold).monospaced())
                 Spacer()
                 monthButton(1, icon:"chevron.right")
             }
             LazyVGrid(columns:Array(repeating:GridItem(.flexible(),spacing:2),count:7),spacing:5) {
-                ForEach(weekdays,id:\.self) { Text($0).font(.caption).foregroundStyle(palette.muted) }
+                ForEach(weekdays,id:\.self) { Text($0).font(.caption.monospaced()).foregroundStyle(palette.muted) }
                 ForEach(0..<(blanks+count),id:\.self) { index in
                     if index < blanks {
                         Color.clear.frame(height:39)
@@ -1319,12 +1333,12 @@ struct IdeaCalendar: View {
         let selected = cal.isDate(day,inSameDayAs:selection)
         return Button { selection = day } label: {
             VStack(spacing:2) {
-                Text(day,format:.dateTime.day()).font(.subheadline)
-                Circle().fill(selected ? palette.sheet : palette.accent)
+                Text(day,format:.dateTime.day()).font(.subheadline.monospaced())
+                Circle().fill(palette.accent)
                     .frame(width:3,height:3).opacity(recorded.contains(day) ? 1 : 0)
-            }.foregroundStyle(selected ? palette.sheet : palette.ink)
+            }.foregroundStyle(palette.ink)
              .frame(maxWidth:.infinity,minHeight:39)
-             .background(selected ? palette.accent : .clear,in:RoundedRectangle(cornerRadius:8))
+             .background(palette.accent.opacity(selected ? 0.24 : 0),in:RoundedRectangle(cornerRadius:8))
         }.accessibilityLabel(day.formatted(date:.complete,time:.omitted))
          .accessibilityAddTraits(selected ? .isSelected : [])
     }
