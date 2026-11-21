@@ -32,7 +32,7 @@ struct Studio: View {
     @AppStorage("think.draft.step") private var draftStep = ""
     @State private var book = Notebook()
     @AppStorage("think.journal.v1") private var coverData = Data()
-    @State private var cover: JournalCover?
+    @State private var cover = JournalCover.saved()
     @State private var editingCover = false
     @State private var page = Page.spark
     @State private var showRewards = false
@@ -50,6 +50,7 @@ struct Studio: View {
     @State private var editorOrigin = Page.spark
     @State private var search = ""
     @State private var dayFilter: Date?
+    @State private var yearFilter: Int?
     @State private var calendarDay = Date()
     @State private var calendarOpen = false
     @State private var detail: Idea?
@@ -80,7 +81,6 @@ struct Studio: View {
         .buttonStyle(.plain)
         .tint(palette.accent)
         .onAppear {
-            cover = try? JSONDecoder().decode(JournalCover.self,from:coverData)
             guard !data.isEmpty else { return }
             do { book = try JSONDecoder().decode(Notebook.self, from: data) }
             catch { storageError = true }
@@ -131,7 +131,7 @@ struct Studio: View {
         if editing == nil { draft = ""; draftStep = ""; draftFlower = false; draftBloom = "" }
         dismissRequest += 1
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil }
+        if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil; yearFilter = nil }
         page = .collection
     }
     private var capture: some View {
@@ -141,10 +141,12 @@ struct Studio: View {
                 Text("thinkinbrain").font(.system(size:15,weight:.semibold)).tracking(0.15)
             }.foregroundStyle(palette.ink).frame(height:52)
             Spacer(minLength:4)
-            ParticleStar {
-                UIImpactFeedbackGenerator(style:.soft).impactOccurred()
-                begin()
-            }.aspectRatio(1.12,contentMode:.fit)
+            if let cover {
+                JournalModel(cover:cover) {
+                    UIImpactFeedbackGenerator(style:.soft).impactOccurred()
+                    begin()
+                }.frame(maxWidth:330).frame(height:344)
+            }
             Text("запиши идею пока не забыл")
                 .font(.subheadline).foregroundStyle(palette.muted).padding(.horizontal,20)
                 .multilineTextAlignment(.center)
@@ -155,7 +157,7 @@ struct Studio: View {
 
     private var menu: some View {
         HStack(spacing:4) {
-            tab(.spark, "Главная", "circle.dotted")
+            tab(.spark, "Главная", "book.closed")
             tab(.collection, "Мои идеи", "books.vertical")
             tab(.settings, "Настройки", "slider.horizontal.3")
         }.padding(.horizontal,16).padding(.top,8).padding(.bottom,4)
@@ -300,7 +302,10 @@ struct Studio: View {
     private var journalDays: [(key: Date, value: [Idea])] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let matches = book.ideas.filter { idea in
-            (dayFilter.map { Calendar.current.isDate($0,inSameDayAs:idea.created) } ?? true) && (query.isEmpty || [idea.text, idea.step, idea.audio == nil ? "" : "Голосовая запись"]
+            let calendar = Calendar.current
+            let dayMatches = dayFilter.map { calendar.isDate($0,inSameDayAs:idea.created) } ?? true
+            let yearMatches = yearFilter.map { calendar.component(.year,from:idea.created) == $0 } ?? true
+            return dayMatches && yearMatches && (query.isEmpty || [idea.text, idea.step, idea.audio == nil ? "" : "Голосовая запись"]
                 .contains { $0.localizedCaseInsensitiveContains(query) })
         }
         return Dictionary(grouping: matches.sorted { $0.created > $1.created }) {
@@ -316,7 +321,7 @@ struct Studio: View {
             }
             if let idea = detail {
                 Text("Идея").font(.largeTitle.bold())
-                ScrollView {
+                ScrollView(showsIndicators:false) {
                     VStack(alignment: .leading, spacing: 20) {
                         if let decoration = idea.decoration { Flower(kind:decoration).frame(width:42,height:58).frame(maxWidth:.infinity) }
                         Text("Дата создания").font(.caption).foregroundStyle(palette.accent)
@@ -335,7 +340,9 @@ struct Studio: View {
                     Text("Мои идеи").font(.largeTitle.bold())
                     Spacer()
                     Button {
-                        calendarDay = dayFilter ?? Date()
+                        calendarDay = dayFilter ?? yearFilter.flatMap { year in
+                            Calendar.current.date(from:DateComponents(year:year,month:1,day:1))
+                        } ?? Date()
                         calendarOpen = true
                     } label: { Label("Календарь",systemImage:"calendar").font(.footnote).frame(minHeight:44) }
                     .foregroundStyle(palette.accent)
@@ -343,6 +350,10 @@ struct Studio: View {
                 if let dayFilter {
                     Button { self.dayFilter = nil } label: {
                         HStack { Text(dayFilter,format:.dateTime.day().month(.wide).year()); Image(systemName:"xmark") }
+                    }.foregroundStyle(palette.accent).accessibilityHint("Показать все даты")
+                } else if let yearFilter {
+                    Button { self.yearFilter = nil } label: {
+                        Label(String(yearFilter),systemImage:"xmark")
                     }.foregroundStyle(palette.accent).accessibilityHint("Показать все даты")
                 }
                 if !book.ideas.isEmpty {
@@ -352,11 +363,11 @@ struct Studio: View {
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
                     }.padding(.horizontal,14).frame(minHeight:44).background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 }
-                ScrollView {
+                ScrollView(showsIndicators:false) {
                     LazyVStack(alignment:.leading,spacing:12) {
                         let sections = journalDays
                         if sections.isEmpty {
-                            Text(dayFilter != nil && search.isEmpty ? "В этот день идей пока нет." : book.ideas.isEmpty ? "Здесь появятся твои идеи. Начни с первой записи." : "По этому запросу записей нет.")
+                            Text(search.isEmpty && (dayFilter != nil || yearFilter != nil) ? (dayFilter == nil ? "В этом году идей пока нет." : "В этот день идей пока нет.") : book.ideas.isEmpty ? "Здесь появятся твои идеи. Начни с первой записи." : "По этому запросу записей нет.")
                                 .foregroundStyle(palette.muted).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
@@ -395,8 +406,10 @@ struct Studio: View {
          .sheet(isPresented:$calendarOpen) {
              IdeaCalendar(selection:$calendarDay,
                           recorded:Set(book.ideas.map { Calendar.current.startOfDay(for:$0.created) }),
-                          apply:{ dayFilter = calendarDay; calendarOpen = false },
-                          reset:{ dayFilter = nil; calendarOpen = false })
+                          startsWithYear:dayFilter == nil,
+                          applyDay:{ dayFilter = calendarDay; yearFilter = nil; calendarOpen = false },
+                          applyYear:{ yearFilter = $0; dayFilter = nil; calendarOpen = false },
+                          reset:{ dayFilter = nil; yearFilter = nil; calendarOpen = false })
          }
     }
     private var rewards: some View {
@@ -671,7 +684,14 @@ struct SpeechPhrases {
 import PhotosUI
 import ImageIO
 
-struct JournalCover: Codable {
+struct JournalCover: Codable, Equatable {
+    static func saved() -> Self? {
+        guard let data = UserDefaults.standard.data(forKey:"think.journal.v1"),
+              let cover = try? JSONDecoder().decode(Self.self,from:data),
+              colors.indices.contains(cover.shade), !cover.title.isEmpty else { return nil }
+        return cover
+    }
+
     var title = ""
     var shade = 0
     var photo: Data?
@@ -685,7 +705,6 @@ struct JournalCover: Codable {
 }
 
 struct NotebookObject: View {
-    @Environment(\.appPalette) private var palette
     let cover: JournalCover
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var angle = -20.0
@@ -710,7 +729,7 @@ struct NotebookObject: View {
                         context.stroke(lines,with:.color(.black.opacity(0.25)),lineWidth:0.5)
                     }.frame(width:182,height:258).allowsHitTesting(false)
                 }
-            face
+            NotebookFace(cover:cover,back:back)
                 .rotation3DEffect(.degrees(back ? 180 : 0),axis:(x:0,y:1,z:0))
         }
         .rotation3DEffect(.degrees(tilt),axis:(x:1,y:0,z:0),perspective:0)
@@ -734,7 +753,13 @@ struct NotebookObject: View {
         .accessibilityAction(named:Text("Повернуть блокнот")) { angle += 45 }
     }
 
-    private var face: some View {
+}
+
+struct NotebookFace: View {
+    let cover: JournalCover
+    let back: Bool
+    @Environment(\.appPalette) private var palette
+    var body: some View {
         ZStack(alignment:.leading) {
             JournalCover.colors[cover.shade]
             if let data = cover.photo, let photo = UIImage(data:data) {
@@ -935,11 +960,13 @@ struct JournalPrimary: ButtonStyle {
 struct IdeaCalendar: View {
     @Binding var selection: Date
     let recorded: Set<Date>
-    let apply: () -> Void
+    let applyDay: () -> Void
+    let applyYear: (Int) -> Void
     let reset: () -> Void
     @Environment(\.appPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var monthMode = false
+    @State private var monthMode: Bool
+    @State private var year: Int
     @State private var displayedMonth: Date
 
     private var cal: Calendar {
@@ -948,50 +975,46 @@ struct IdeaCalendar: View {
         calendar.firstWeekday = 2
         return calendar
     }
-    private let width: CGFloat = 44
-    private let dates: [Date]
-    init(selection: Binding<Date>, recorded: Set<Date>, apply: @escaping () -> Void, reset: @escaping () -> Void) {
+    private let range: ClosedRange<Int>
+    init(selection: Binding<Date>, recorded: Set<Date>, startsWithYear:Bool,
+         applyDay:@escaping () -> Void, applyYear:@escaping (Int) -> Void, reset:@escaping () -> Void) {
         _selection = selection
         _displayedMonth = State(initialValue:selection.wrappedValue)
+        _monthMode = State(initialValue:!startsWithYear)
+        let calendar = Calendar.current
+        _year = State(initialValue:calendar.component(.year,from:selection.wrappedValue))
         self.recorded = recorded
-        self.apply = apply
+        self.applyDay = applyDay
+        self.applyYear = applyYear
         self.reset = reset
-        let c = Calendar.current
-        let today = c.startOfDay(for: Date())
-        let anchor = min(today,recorded.min() ?? today)
-        let first = c.date(byAdding:.year,value:-1,to:anchor) ?? anchor
-        let last = c.date(byAdding:.year,value:1,to:today) ?? today
-        let days = c.dateComponents([.day],from:first,to:last).day ?? 0
-        dates = (0...max(0,days)).compactMap { c.date(byAdding:.day,value:$0,to:first).map { c.startOfDay(for:$0) } }
+        let todayYear = calendar.component(.year,from:Date())
+        let recordedYears = recorded.map { calendar.component(.year,from:$0) }
+        range = min(todayYear-8, recordedYears.min() ?? todayYear)...max(todayYear+1,recordedYears.max() ?? todayYear)
     }
     var body: some View {
         VStack(alignment:.leading,spacing:18) {
             HStack(spacing:5) {
-                mode("Лента", monthly:false)
+                mode("Год", monthly:false)
                 mode("Месяц", monthly:true)
             }.padding(4).background(palette.card,in:RoundedRectangle(cornerRadius:14))
-            HStack(alignment:.firstTextBaseline) {
-                Text(selection,format:.dateTime.month(.wide).year()).font(.title2.weight(.medium))
-                Spacer()
-                Text(selection,format:.dateTime.day()).font(.system(size:48,weight:.light)).monospacedDigit()
-            }
-            if monthMode {
-                monthGrid
-            } else { strip }
+            if monthMode { monthGrid } else { yearGrid }
             HStack {
                 Button("Все даты",action:reset).frame(minHeight:44)
                 Spacer()
-                Button("Показать идеи",action:apply).frame(minHeight:44)
+                Button("Показать идеи") {
+                    if monthMode { applyDay() } else { applyYear(year) }
+                }.frame(minHeight:44)
                     .font(.body.weight(.semibold))
             }
         }.padding(20).foregroundStyle(palette.ink).tint(palette.accent)
          .environment(\.locale,Locale(identifier:"ru"))
-         .presentationBackground(palette.sheet).presentationDetents(monthMode ? [.large] : [.height(330),.large])
+         .presentationBackground(palette.sheet).presentationDetents([.height(460),.large])
          .presentationDragIndicator(.visible)
     }
     private func mode(_ label:String,monthly:Bool) -> some View {
         Button {
-            displayedMonth = selection
+            if monthly { displayedMonth = selection }
+            else { year = cal.component(.year,from:selection) }
             withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { monthMode = monthly }
         } label: {
             Text(label).font(.subheadline.weight(.medium)).frame(maxWidth:.infinity,minHeight:38)
@@ -999,8 +1022,33 @@ struct IdeaCalendar: View {
                 .background(monthMode == monthly ? palette.accent : Color.clear,in:RoundedRectangle(cornerRadius:10))
         }.accessibilityAddTraits(monthMode == monthly ? .isSelected : [])
     }
-    private var center: Binding<Date?> {
-        Binding(get:{ cal.startOfDay(for:selection) },set:{ if let value = $0 { selection = value } })
+    private var yearGrid: some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators:false) {
+                LazyVGrid(columns:Array(repeating:GridItem(.flexible()),count:3),spacing:8) {
+                    ForEach(range.reversed(),id:\.self) { candidate in
+                        Button {
+                            chooseYear(candidate)
+                        } label: {
+                            Text(String(candidate)).monospacedDigit()
+                                .frame(maxWidth:.infinity,minHeight:44)
+                                .foregroundStyle(year == candidate ? palette.sheet : palette.ink)
+                                .background(year == candidate ? palette.accent : palette.card,
+                                            in:RoundedRectangle(cornerRadius:10))
+                        }.id(candidate).accessibilityAddTraits(year == candidate ? .isSelected : [])
+                    }
+                }
+            }.frame(height:242)
+             .onAppear { proxy.scrollTo(year,anchor:.center) }
+        }
+    }
+
+    private func chooseYear(_ candidate:Int) {
+        year = candidate
+        let month = cal.component(.month,from:selection)
+        let matching = recorded.filter { cal.component(.year,from:$0) == candidate }
+        selection = matching.max() ?? cal.date(from:DateComponents(year:candidate,month:month,day:1)) ?? selection
+        displayedMonth = selection
     }
     private var monthGrid: some View {
         let monthStart = cal.dateInterval(of:.month,for:displayedMonth)?.start ?? displayedMonth
@@ -1029,15 +1077,13 @@ struct IdeaCalendar: View {
     }
     private func monthButton(_ offset:Int, icon:String) -> some View {
         let next = cal.date(byAdding:.month,value:offset,to:displayedMonth) ?? displayedMonth
-        let interval = cal.dateInterval(of:.month,for:next)
-        let available = interval.map { $0.end > (dates.first ?? next) && $0.start <= (dates.last ?? next) } ?? false
+        let available = range.contains(cal.component(.year,from:next))
         return Button { displayedMonth = next } label: { Image(systemName:icon).frame(width:44,height:44) }
             .disabled(!available).opacity(available ? 1 : 0.35)
             .accessibilityLabel(offset < 0 ? "Предыдущий месяц" : "Следующий месяц")
     }
     private func monthDay(_ day:Date) -> some View {
         let selected = cal.isDate(day,inSameDayAs:selection)
-        let available = day >= (dates.first ?? day) && day <= (dates.last ?? day)
         return Button { selection = day } label: {
             VStack(spacing:2) {
                 Text(day,format:.dateTime.day()).font(.subheadline)
@@ -1046,38 +1092,161 @@ struct IdeaCalendar: View {
             }.foregroundStyle(selected ? palette.sheet : palette.ink)
              .frame(maxWidth:.infinity,minHeight:39)
              .background(selected ? palette.accent : .clear,in:RoundedRectangle(cornerRadius:8))
-        }.disabled(!available).opacity(available ? 1 : 0.35)
-         .accessibilityLabel(day.formatted(date:.complete,time:.omitted))
-         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-    private var strip: some View {
-        GeometryReader { geo in
-            ScrollView(.horizontal) {
-                LazyHStack(spacing:4) {
-                    ForEach(dates,id:\.self) { day in
-                        dateCell(day).id(day)
-                    }
-                }.scrollTargetLayout()
-            }.contentMargins(.horizontal,max(0,(geo.size.width-width)/2),for:.scrollContent)
-             .scrollTargetBehavior(.viewAligned(limitBehavior:.always))
-             .scrollPosition(id:center,anchor:.center)
-             .scrollIndicators(.hidden)
-             .mask { LinearGradient(stops:[.init(color:.clear,location:0),.init(color:.black,location:0.09),.init(color:.black,location:0.91),.init(color:.clear,location:1)],startPoint:.leading,endPoint:.trailing) }
-        }.frame(height:86).background(palette.card,in:RoundedRectangle(cornerRadius:15))
-    }
-    private func dateCell(_ day:Date) -> some View {
-        let selected = cal.isDate(day,inSameDayAs:selection)
-        return Button {
-            withAnimation(reduced ? nil : .easeOut(duration:0.25)) { selection = day }
-        } label: {
-            VStack(spacing:4) {
-                Text(day,format:.dateTime.weekday(.abbreviated)).font(.caption).foregroundStyle(palette.muted)
-                Text(day,format:.dateTime.day()).font(.subheadline.weight(selected ? .bold : .regular))
-                    .foregroundStyle(selected ? palette.sheet : palette.ink).frame(width:36,height:36)
-                    .background(selected ? palette.accent : Color.clear,in:Circle())
-                Circle().fill(palette.accent.opacity(recorded.contains(day) ? 1 : 0)).frame(width:4,height:4)
-            }.frame(width:width,height:78)
         }.accessibilityLabel(day.formatted(date:.complete,time:.omitted))
          .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
+
+import SceneKit
+
+struct JournalModel: UIViewRepresentable {
+    let cover: JournalCover
+    let onTap: () -> Void
+    @Environment(\.appPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduced
+
+    func makeCoordinator() -> Interaction { Interaction() }
+
+    func makeUIView(context: Context) -> SCNView {
+        let view = AccessibleBookView()
+        let scene = SCNScene()
+        scene.background.contents = UIColor.clear
+        view.scene = scene
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.antialiasingMode = .multisampling4X
+
+        let camera = SCNNode()
+        camera.camera = SCNCamera()
+        camera.camera?.usesOrthographicProjection = true
+        camera.camera?.orthographicScale = 1.73
+        camera.position = SCNVector3(0,0,7)
+        scene.rootNode.addChildNode(camera)
+        view.pointOfView = camera
+        scene.rootNode.addChildNode(context.coordinator.book)
+        view.isAccessibilityElement = true
+        view.accessibilityTraits = [.button]
+        view.accessibilityLabel = "Дневник, записать идею"
+        let pan = UIPanGestureRecognizer(target:context.coordinator,action:#selector(Interaction.rotate(_:)))
+        pan.maximumNumberOfTouches = 1
+        let tap = UITapGestureRecognizer(target:context.coordinator,action:#selector(Interaction.open))
+        tap.require(toFail:pan)
+        view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(tap)
+        return view
+    }
+
+    func updateUIView(_ view:SCNView,context:Context) {
+        let controller = context.coordinator
+        controller.openIdea = onTap
+        controller.reduced = reduced
+        (view as? AccessibleBookView)?.openIdea = onTap
+        guard controller.artwork != cover || controller.colors != palette else { return }
+        controller.artwork = cover
+        controller.colors = palette
+        let title = texture(back:false)
+        let plain = texture(back:true)
+        let cloth: Any = UIColor(JournalCover.colors[cover.shade])
+        let front = title.map { $0 as Any } ?? cloth
+        let back = plain.map { $0 as Any } ?? cloth
+        controller.rebuild(front:front,back:back,edges:back)
+    }
+
+    private func texture(back:Bool) -> UIImage? {
+        let renderer = ImageRenderer(content:NotebookFace(cover:cover,back:back).environment(\.appPalette,palette))
+        renderer.scale = 2.5
+        return renderer.uiImage
+    }
+
+    final class AccessibleBookView: SCNView {
+        var openIdea: (() -> Void)?
+        override func accessibilityActivate() -> Bool { openIdea?(); return true }
+    }
+
+    final class Interaction: NSObject {
+        let book = SCNNode()
+        private let tilt = SCNNode()
+        private var start = CGPoint.zero
+        private var yaw: Float = -0.34
+        private var pitch: Float = 0.13
+        var artwork: JournalCover?
+        var colors: AppPalette?
+        var reduced = false
+        var openIdea: (() -> Void)?
+
+        override init() {
+            super.init()
+            book.eulerAngles.y = yaw
+            tilt.eulerAngles.x = pitch
+            book.addChildNode(tilt)
+        }
+
+        func rebuild(front:Any, back:Any, edges:Any) {
+            tilt.childNodes.forEach { $0.removeFromParentNode() }
+            let paper = pages()
+            let exterior = SCNMaterial()
+            exterior.diffuse.contents = edges
+            exterior.lightingModel = .constant
+            let block = SCNBox(width:1.75,height:2.49,length:0.23,chamferRadius:0.018)
+            block.materials = [paper,paper,paper,exterior,paper,paper]
+            tilt.addChildNode(SCNNode(geometry:block))
+            addCover(front,at:0.132)
+            addCover(back,at:-0.132,reverse:true)
+        }
+
+        private func addCover(_ artwork:Any,at z:Float,reverse:Bool = false) {
+            let face = SCNMaterial()
+            face.diffuse.contents = artwork
+            face.lightingModel = .constant
+            let box = SCNBox(width:1.82,height:2.58,length:0.044,chamferRadius:0.014)
+            box.materials = [face]
+            let node = SCNNode(geometry:box)
+            node.position.z = z
+            if reverse { node.eulerAngles.y = .pi }
+            tilt.addChildNode(node)
+        }
+
+        private func pages() -> SCNMaterial {
+            let image = UIGraphicsImageRenderer(size:CGSize(width:128,height:128)).image { context in
+                UIColor(white:0.67,alpha:1).setFill()
+                context.fill(CGRect(x:0,y:0,width:128,height:128))
+                for index in 0..<27 {
+                    let bright = index.isMultiple(of:4)
+                    UIColor(white:bright ? 0.82 : 0.54,alpha:1).setFill()
+                    context.fill(CGRect(x:Double(index)*4.75,y:0,width:bright ? 1.4 : 0.55,height:128))
+                }
+            }
+            let material = SCNMaterial()
+            material.diffuse.contents = image
+            material.lightingModel = .constant
+            return material
+        }
+
+        @objc func open() { openIdea?() }
+
+        @objc func rotate(_ gesture:UIPanGestureRecognizer) {
+            let delta = gesture.translation(in:gesture.view)
+            switch gesture.state {
+            case .began:
+                let presented = book.presentation.eulerAngles.y
+                book.removeAllActions()
+                book.eulerAngles.y = presented
+                start = CGPoint(x:CGFloat(presented),y:CGFloat(tilt.eulerAngles.x))
+            case .changed,.ended:
+                yaw = Float(start.x + delta.x*0.012)
+                pitch = min(0.78,max(-0.78,Float(start.y)+Float(delta.y)*0.007))
+                book.eulerAngles.y = yaw
+                tilt.eulerAngles.x = pitch
+                if gesture.state == .ended && !reduced {
+                    let velocity = gesture.velocity(in:gesture.view).x
+                    let spin = min(1.5,max(-1.5,velocity*0.0017))
+                    let action = SCNAction.rotateBy(x:0,y:spin,z:0,duration:0.54)
+                    action.timingMode = .easeOut
+                    book.runAction(action)
+                }
+            default: break
+            }
+        }
+    }
+}
+
