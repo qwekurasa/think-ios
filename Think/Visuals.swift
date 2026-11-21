@@ -70,7 +70,7 @@ extension EnvironmentValues {
     }
 }
 
-enum Bloom: String, CaseIterable, Identifiable {
+enum Bloom: String, Codable, CaseIterable, Identifiable {
     case daisy, rose, lily, tulip, poppy, lavender, iris, sunflower, bell, lotus
     var id: String { rawValue }
     var name: String {
