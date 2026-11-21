@@ -643,7 +643,7 @@ final class Dictation: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.generation == token else { return }
                     if let words, !words.isEmpty {
-                        update(self.phrases.receive(words,start:from,end:until,at:ProcessInfo.processInfo.systemUptime,closing:!self.listening))
+                        update(self.phrases.receive(words,start:from,end:until,at:ProcessInfo.processInfo.systemUptime,closing:final || !self.listening))
                     }
                     if final || failure != nil {
                         if self.listening && failure != nil && words == nil { self.error = "Диктовка прервалась. Нажми микрофон, чтобы продолжить." }
@@ -795,7 +795,23 @@ struct SpeechPhrases {
         let previous = tokens(current)
         let incoming = tokens(words)
         guard !incoming.isEmpty else { return value }
+        let accepted = tokens(value)
         let committed = tokens(frozen)
+        let shifted = start >= previousEnd - 0.04 && start > (firstTime ?? start)+0.18
+        let clockReset = end + 0.1 < previousEnd
+        let quiet = now - (lastEvent ?? now) > 1.0
+
+        // A recognizer can replay an older, shorter hypothesis, even as its final result.
+        if !shifted && incoming.count < accepted.count {
+            if accepted.starts(with:incoming) || accepted.suffix(incoming.count).elementsEqual(incoming) {
+                return value
+            }
+            let replaysFrozen = !committed.isEmpty && incoming.starts(with:committed)
+            let revisitsCurrent = abs(start - (firstTime ?? start)) <= 0.18 && end <= previousEnd + 0.04
+                && incoming.first == previous.first && incoming.count < previous.count
+            if replaysFrozen || revisitsCurrent { return value }
+        }
+
         if !committed.isEmpty && incoming.starts(with:committed) && incoming.count > committed.count {
             frozen = ""
             current = words
@@ -804,23 +820,16 @@ struct SpeechPhrases {
             lastEvent = now
             return value
         }
-        let extended = incoming.starts(with:previous)
-        let shifted = start >= previousEnd - 0.04 && start > (firstTime ?? start)+0.18
-        let clockReset = end + 0.1 < previousEnd
-        let quiet = now - (lastEvent ?? now) > 1.0
-
-        if closing && !extended {
-            let accepted = tokens(value)
-            if accepted.suffix(incoming.count).elementsEqual(incoming) || accepted.starts(with: incoming) { return value }
-            if shifted || clockReset {
-                let overlap = suffixOverlap(accepted,incoming)
-                let tail = words.split(whereSeparator: \.isWhitespace).dropFirst(overlap).joined(separator:" ")
-                if !tail.isEmpty { frozen = value; current = tail }
-                return value
-            }
+        if closing && !shifted && incoming.count < previous.count && end <= previousEnd + 0.04 {
+            return value
         }
-        if !current.isEmpty && !extended && (shifted || quiet && (clockReset || incoming.first != previous.first)) {
-            let overlap = suffixOverlap(previous,incoming)
+        let separate = start > previousEnd + 0.08 && shifted
+        let extended = !separate && incoming.starts(with:previous)
+        let overlap = separate ? 0 : suffixOverlap(previous,incoming)
+        let beginsInsideCurrent = start > (firstTime ?? start) + 0.18 && overlap > 0
+        if !current.isEmpty && !extended &&
+            (shifted || beginsInsideCurrent || quiet && (clockReset || incoming.first != previous.first)) {
+            if closing && clockReset && overlap == incoming.count { return value }
             if overlap == incoming.count {
                 return value
             }

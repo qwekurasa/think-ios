@@ -33,6 +33,19 @@ jobs:
           _ = replay.receive("первая часть",start:0,end:0.9,at:1)
           _ = replay.receive("вторая часть",start:2,end:2.9,at:3)
           precondition(replay.receive("первая часть вторая часть",start:0,end:2.9,at:4,closing:true) == "первая часть вторая часть")
+          var rollback = SpeechPhrases()
+          _ = rollback.receive("Идея для приложения",start:0,end:1,at:1)
+          _ = rollback.receive("Идея для приложения с голосовым вводом",start:0,end:4,at:4)
+          precondition(rollback.receive("Идея для приложения",start:0,end:1,at:4.1) == "Идея для приложения с голосовым вводом")
+          precondition(rollback.receive("голосовым вводом",start:3,end:4,at:5,closing:true) == "Идея для приложения с голосовым вводом")
+          var paused = SpeechPhrases()
+          _ = paused.receive("Первый отрезок",start:0,end:1,at:1)
+          _ = paused.receive("новая фраза после паузы",start:2,end:4,at:4)
+          precondition(paused.receive("Первый отрезок новая фраза",start:0,end:3,at:4.2) == "Первый отрезок новая фраза после паузы")
+          precondition(paused.receive("Первый отрезок новая фраза после паузы.",start:0,end:4,at:4.4,closing:true) == "Первый отрезок новая фраза после паузы.")
+          var intentionalRepeat = SpeechPhrases()
+          _ = intentionalRepeat.receive("Да",start:0,end:0.4,at:0.4)
+          precondition(intentionalRepeat.receive("да",start:2,end:2.4,at:2.4) == "Да да")
           SWIFT
           swift "$RUNNER_TEMP/dictation.swift"
       - name: Check retention, pin spending and completion rewards
