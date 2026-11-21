@@ -336,17 +336,16 @@ struct Studio: View {
                 Button { begin(idea) } label: { Label("Редактировать",systemImage:"pencil").frame(maxWidth:.infinity,minHeight:48) }
                     .foregroundStyle(palette.accent)
             } else {
-                HStack {
-                    Text("Мои идеи").font(.largeTitle.bold())
-                    Spacer()
-                    Button {
-                        calendarDay = dayFilter ?? yearFilter.flatMap { year in
-                            Calendar.current.date(from:DateComponents(year:year,month:1,day:1))
-                        } ?? Date()
-                        calendarOpen = true
-                    } label: { Label("Календарь",systemImage:"calendar").font(.footnote).frame(minHeight:44) }
-                    .foregroundStyle(palette.accent)
-                }
+                Button {
+                    calendarDay = dayFilter ?? yearFilter.flatMap { year in
+                        Calendar.current.date(from:DateComponents(year:year,month:1,day:1))
+                    } ?? Date()
+                    calendarOpen = true
+                } label: {
+                    Label("Календарь",systemImage:"calendar")
+                        .font(.subheadline.weight(.medium))
+                        .frame(minHeight:44)
+                }.foregroundStyle(palette.accent).frame(maxWidth:.infinity)
                 if let dayFilter {
                     Button { self.dayFilter = nil } label: {
                         HStack { Text(dayFilter,format:.dateTime.day().month(.wide).year()); Image(systemName:"xmark") }
@@ -406,7 +405,7 @@ struct Studio: View {
          .sheet(isPresented:$calendarOpen) {
              IdeaCalendar(selection:$calendarDay,
                           recorded:Set(book.ideas.map { Calendar.current.startOfDay(for:$0.created) }),
-                          startsWithYear:dayFilter == nil,
+                          startsWithYear:yearFilter != nil,
                           applyDay:{ dayFilter = calendarDay; yearFilter = nil; calendarOpen = false },
                           applyYear:{ yearFilter = $0; dayFilter = nil; calendarOpen = false },
                           reset:{ dayFilter = nil; yearFilter = nil; calendarOpen = false })
@@ -762,7 +761,7 @@ struct NotebookFace: View {
     var body: some View {
         ZStack(alignment:.leading) {
             JournalCover.colors[cover.shade]
-            if let data = cover.photo, let photo = UIImage(data:data) {
+            if !back, let data = cover.photo, let photo = UIImage(data:data) {
                 Image(uiImage:photo).resizable().scaledToFill().frame(width:182,height:258).clipped()
             }
             LinearGradient(colors:[.white.opacity(0.24),.clear,.black.opacity(0.28)],startPoint:.topLeading,endPoint:.bottomTrailing)
@@ -965,7 +964,10 @@ struct IdeaCalendar: View {
     let reset: () -> Void
     @Environment(\.appPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var monthMode: Bool
+    private enum Mode { case week, month, year }
+    @State private var mode: Mode
+    @State private var weekOffset: CGFloat = 0
+    @State private var previewDay: Date?
     @State private var year: Int
     @State private var displayedMonth: Date
 
@@ -980,7 +982,7 @@ struct IdeaCalendar: View {
          applyDay:@escaping () -> Void, applyYear:@escaping (Int) -> Void, reset:@escaping () -> Void) {
         _selection = selection
         _displayedMonth = State(initialValue:selection.wrappedValue)
-        _monthMode = State(initialValue:!startsWithYear)
+        _mode = State(initialValue:startsWithYear ? .year : .week)
         let calendar = Calendar.current
         _year = State(initialValue:calendar.component(.year,from:selection.wrappedValue))
         self.recorded = recorded
@@ -992,36 +994,83 @@ struct IdeaCalendar: View {
         range = min(todayYear-8, recordedYears.min() ?? todayYear)...max(todayYear+1,recordedYears.max() ?? todayYear)
     }
     var body: some View {
-        VStack(alignment:.leading,spacing:18) {
-            HStack(spacing:5) {
-                mode("Год", monthly:false)
-                mode("Месяц", monthly:true)
-            }.padding(4).background(palette.card,in:RoundedRectangle(cornerRadius:14))
-            if monthMode { monthGrid } else { yearGrid }
-            HStack {
-                Button("Все даты",action:reset).frame(minHeight:44)
-                Spacer()
-                Button("Показать идеи") {
-                    if monthMode { applyDay() } else { applyYear(year) }
-                }.frame(minHeight:44)
-                    .font(.body.weight(.semibold))
-            }
-        }.padding(20).foregroundStyle(palette.ink).tint(palette.accent)
+        ScrollView(showsIndicators:false) {
+            VStack(alignment:.leading,spacing:14) {
+                HStack(spacing:8) {
+                    HStack(spacing:4) {
+                        modeButton("Неделя",.week)
+                        modeButton("Месяц",.month)
+                    }.padding(4).background(palette.sheet.opacity(0.52),in:RoundedRectangle(cornerRadius:12))
+                    Button { changeMode(.year) } label: {
+                        Image(systemName:"calendar.badge.clock").font(.system(size:17,weight:.medium))
+                            .frame(width:44,height:44)
+                            .background(mode == .year ? palette.accent.opacity(0.26) : palette.sheet.opacity(0.52),in:Circle())
+                    }.accessibilityLabel("Выбрать год").accessibilityAddTraits(mode == .year ? .isSelected : [])
+                }
+                dateHeading
+                switch mode {
+                case .week: weekWheel
+                case .month: monthGrid
+                case .year: yearGrid
+                }
+                HStack {
+                    Button("Все даты",action:reset).frame(minHeight:44)
+                    Spacer()
+                    Button("Показать идеи") {
+                        if mode == .year { applyYear(year) } else { applyDay() }
+                    }.font(.subheadline.weight(.semibold)).padding(.horizontal,12)
+                     .frame(minHeight:38).background(palette.accent.opacity(0.16),in:Capsule())
+                }.font(.subheadline)
+            }.padding(17)
+             .background {
+                 RoundedRectangle(cornerRadius:24).fill(
+                     LinearGradient(colors:[palette.card,palette.accent.opacity(0.20),palette.card],
+                                    startPoint:.topLeading,endPoint:.bottomTrailing)
+                 )
+             }
+             .overlay { RoundedRectangle(cornerRadius:24).strokeBorder(palette.accent.opacity(0.18)).allowsHitTesting(false) }
+             .padding(.horizontal,14).padding(.vertical,16)
+        }.foregroundStyle(palette.ink).tint(palette.accent)
          .environment(\.locale,Locale(identifier:"ru"))
-         .presentationBackground(palette.sheet).presentationDetents([.height(460),.large])
+         .presentationBackground(palette.sheet)
+         .presentationDetents(mode == .week ? [.height(380),.large] : [.height(520),.large])
          .presentationDragIndicator(.visible)
     }
-    private func mode(_ label:String,monthly:Bool) -> some View {
-        Button {
-            if monthly { displayedMonth = selection }
-            else { year = cal.component(.year,from:selection) }
-            withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { monthMode = monthly }
-        } label: {
-            Text(label).font(.subheadline.weight(.medium)).frame(maxWidth:.infinity,minHeight:38)
-                .foregroundStyle(monthMode == monthly ? palette.sheet : palette.ink)
-                .background(monthMode == monthly ? palette.accent : Color.clear,in:RoundedRectangle(cornerRadius:10))
-        }.accessibilityAddTraits(monthMode == monthly ? .isSelected : [])
+
+    private var dateHeading: some View {
+        let highlighted = previewDay ?? selection
+        let shown = mode == .month ? displayedMonth : highlighted
+        return HStack(alignment:.lastTextBaseline,spacing:8) {
+            if mode == .year {
+                Text(String(year)).font(.system(size:45,weight:.light)).monospacedDigit()
+            } else {
+                VStack(alignment:.leading,spacing:3) {
+                    Text(shown.formatted(.dateTime.month(.wide).locale(Locale(identifier:"ru"))).capitalized)
+                        .font(.system(size:36,weight:.medium)).lineLimit(1).minimumScaleFactor(0.65)
+                    Text(String(cal.component(.year,from:shown))).font(.caption).foregroundStyle(palette.muted)
+                }
+                Spacer()
+                Text(String(cal.component(.day,from:highlighted)))
+                    .font(.system(size:57,weight:.light)).monospacedDigit()
+            }
+        }.frame(maxWidth:.infinity,alignment:.leading)
     }
+
+    private func modeButton(_ label:String,_ next:Mode) -> some View {
+        Button { changeMode(next) } label: {
+            Text(label).font(.subheadline.weight(.medium)).frame(maxWidth:.infinity,minHeight:36)
+                .foregroundStyle(mode == next ? palette.sheet : palette.ink)
+                .background(mode == next ? palette.accent : Color.clear,in:RoundedRectangle(cornerRadius:9))
+        }.accessibilityAddTraits(mode == next ? .isSelected : [])
+    }
+
+    private func changeMode(_ next:Mode) {
+        guard mode != next else { return }
+        if next == .month { displayedMonth = selection }
+        if next == .year { year = cal.component(.year,from:selection) }
+        withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { mode = next }
+    }
+
     private var yearGrid: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators:false) {
@@ -1050,6 +1099,92 @@ struct IdeaCalendar: View {
         selection = matching.max() ?? cal.date(from:DateComponents(year:candidate,month:month,day:1)) ?? selection
         displayedMonth = selection
     }
+    private var weekWheel: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let stride = max(1,width / 7)
+            let displacement = Int((-weekOffset / stride).rounded())
+            let cells = Array((displacement-5)...(displacement+5))
+            ZStack {
+                weekTrack
+                Circle().fill(palette.accent.opacity(0.32))
+                    .overlay { Circle().strokeBorder(palette.accent.opacity(0.34)) }
+                    .frame(width:38,height:38).position(x:width/2,y:57)
+                ForEach(cells,id:\.self) { offset in
+                    if let date = cal.date(byAdding:.day,value:offset,to:selection), allowed(date) {
+                        let relative = CGFloat(offset) * stride + weekOffset
+                        let distance = min(1.4,abs(relative)/max(1,width/2))
+                        let curve = distance * distance * 14
+                        Button { settle(offset:offset,stride:stride) } label: {
+                            VStack(spacing:5) {
+                                Text(date,format:.dateTime.weekday(.abbreviated))
+                                    .font(.caption).foregroundStyle(palette.muted)
+                                Text(String(cal.component(.day,from:date)))
+                                    .font(.body.weight(offset == displacement ? .semibold : .regular)).monospacedDigit()
+                                    .frame(height:36)
+                                Circle().fill(palette.ink).frame(width:3,height:3)
+                                    .opacity(recorded.contains(cal.startOfDay(for:date)) ? 1 : 0)
+                            }.frame(width:stride,height:80).contentShape(Rectangle())
+                        }.position(x:width/2+relative,y:43+curve)
+                         .opacity(abs(relative) > width*0.46 ? 0.34 : 1)
+                         .accessibilityLabel(date.formatted(date:.complete,time:.omitted))
+                         .accessibilityAddTraits(offset == displacement ? .isSelected : [])
+                         .accessibilityHidden(abs(relative) > width/2)
+                    }
+                }
+            }.contentShape(Rectangle()).clipped()
+             .gesture(DragGesture(minimumDistance:7)
+                .onChanged { value in
+                    let distance = value.translation.width
+                    let offset = Int((-distance/stride).rounded())
+                    if let date = cal.date(byAdding:.day,value:offset,to:selection), allowed(date) {
+                        weekOffset = distance
+                        previewDay = date
+                    }
+                }
+                .onEnded { value in
+                    let drift = value.predictedEndTranslation.width - value.translation.width
+                    let distance = weekOffset + min(stride*2,max(-stride*2,drift * 0.3))
+                    settle(offset:Int((-distance/stride).rounded()),stride:stride)
+                })
+             .accessibilityAdjustableAction { direction in
+                 switch direction {
+                 case .increment: settle(offset:1,stride:stride)
+                 case .decrement: settle(offset:-1,stride:stride)
+                 @unknown default: break
+                 }
+             }
+        }.frame(height:104)
+    }
+
+    private var weekTrack: some View {
+        Canvas { context,size in
+            let w = size.width
+            var track = Path()
+            track.move(to:CGPoint(x:0,y:58))
+            track.addQuadCurve(to:CGPoint(x:w,y:58),control:CGPoint(x:w/2,y:18))
+            track.addLine(to:CGPoint(x:w,y:91))
+            track.addQuadCurve(to:CGPoint(x:0,y:91),control:CGPoint(x:w/2,y:53))
+            track.closeSubpath()
+            context.fill(track,with:.color(palette.accent.opacity(0.09)))
+            context.stroke(track,with:.color(palette.accent.opacity(0.15)),lineWidth:0.7)
+        }.allowsHitTesting(false).accessibilityHidden(true)
+    }
+
+    private func allowed(_ date:Date) -> Bool {
+        range.contains(cal.component(.year,from:date))
+    }
+
+    private func settle(offset:Int,stride:CGFloat) {
+        if let next = cal.date(byAdding:.day,value:offset,to:selection), allowed(next) {
+            weekOffset += CGFloat(offset) * stride
+            selection = next
+        }
+        previewDay = nil
+        withAnimation(reduced ? nil : .spring(response:0.32,dampingFraction:0.85)) { weekOffset = 0 }
+    }
+
+
     private var monthGrid: some View {
         let monthStart = cal.dateInterval(of:.month,for:displayedMonth)?.start ?? displayedMonth
         let blanks = (cal.component(.weekday,from:monthStart)-cal.firstWeekday+7)%7
@@ -1078,7 +1213,10 @@ struct IdeaCalendar: View {
     private func monthButton(_ offset:Int, icon:String) -> some View {
         let next = cal.date(byAdding:.month,value:offset,to:displayedMonth) ?? displayedMonth
         let available = range.contains(cal.component(.year,from:next))
-        return Button { displayedMonth = next } label: { Image(systemName:icon).frame(width:44,height:44) }
+        return Button {
+            displayedMonth = next
+            selection = next
+        } label: { Image(systemName:icon).frame(width:44,height:44) }
             .disabled(!available).opacity(available ? 1 : 0.35)
             .accessibilityLabel(offset < 0 ? "Предыдущий месяц" : "Следующий месяц")
     }
@@ -1144,18 +1282,10 @@ struct JournalModel: UIViewRepresentable {
         guard controller.artwork != cover || controller.colors != palette else { return }
         controller.artwork = cover
         controller.colors = palette
-        let title = texture(back:false)
-        let plain = texture(back:true)
-        let cloth: Any = UIColor(JournalCover.colors[cover.shade])
-        let front = title.map { $0 as Any } ?? cloth
-        let back = plain.map { $0 as Any } ?? cloth
-        controller.rebuild(front:front,back:back,edges:back)
-    }
-
-    private func texture(back:Bool) -> UIImage? {
-        let renderer = ImageRenderer(content:NotebookFace(cover:cover,back:back).environment(\.appPalette,palette))
+        let cloth = UIColor(JournalCover.colors[cover.shade])
+        let renderer = ImageRenderer(content:NotebookFace(cover:cover,back:false).environment(\.appPalette,palette))
         renderer.scale = 2.5
-        return renderer.uiImage
+        controller.rebuild(front:renderer.uiImage,cloth:cloth)
     }
 
     final class AccessibleBookView: SCNView {
@@ -1181,28 +1311,30 @@ struct JournalModel: UIViewRepresentable {
             book.addChildNode(tilt)
         }
 
-        func rebuild(front:Any, back:Any, edges:Any) {
+        func rebuild(front:UIImage?, cloth:UIColor) {
             tilt.childNodes.forEach { $0.removeFromParentNode() }
             let paper = pages()
             let exterior = SCNMaterial()
-            exterior.diffuse.contents = edges
+            exterior.diffuse.contents = cloth
             exterior.lightingModel = .constant
             let block = SCNBox(width:1.75,height:2.49,length:0.23,chamferRadius:0.018)
             block.materials = [paper,paper,paper,exterior,paper,paper]
             tilt.addChildNode(SCNNode(geometry:block))
-            addCover(front,at:0.132)
-            addCover(back,at:-0.132,reverse:true)
+            addCover(at:0.132,cloth:exterior,artwork:front)
+            addCover(at:-0.132,cloth:exterior)
         }
 
-        private func addCover(_ artwork:Any,at z:Float,reverse:Bool = false) {
-            let face = SCNMaterial()
-            face.diffuse.contents = artwork
-            face.lightingModel = .constant
+        private func addCover(at z:Float,cloth:SCNMaterial,artwork:UIImage? = nil) {
             let box = SCNBox(width:1.82,height:2.58,length:0.044,chamferRadius:0.014)
-            box.materials = [face]
+            if let artwork {
+                let image = SCNMaterial()
+                image.diffuse.contents = artwork
+                image.lightingModel = .constant
+                // SCNBox orders its faces front, right, back, left, top and bottom.
+                box.materials = [image,cloth,cloth,cloth,cloth,cloth]
+            } else { box.materials = [cloth] }
             let node = SCNNode(geometry:box)
             node.position.z = z
-            if reverse { node.eulerAngles.y = .pi }
             tilt.addChildNode(node)
         }
 
@@ -1228,9 +1360,10 @@ struct JournalModel: UIViewRepresentable {
             let delta = gesture.translation(in:gesture.view)
             switch gesture.state {
             case .began:
-                let presented = book.presentation.eulerAngles.y
+                let transform = book.presentation.transform
+                let presented = atan2f(-transform.m13,transform.m11)
                 book.removeAllActions()
-                book.eulerAngles.y = presented
+                book.eulerAngles = SCNVector3(0,presented,0)
                 start = CGPoint(x:CGFloat(presented),y:CGFloat(tilt.eulerAngles.x))
             case .changed,.ended:
                 yaw = Float(start.x + delta.x*0.012)
