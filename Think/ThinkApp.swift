@@ -25,12 +25,15 @@ struct Notebook: Codable {
     var cool = false
 }
 
-enum Page { case spark, editor, collection }
+enum Page { case spark, editor, collection, settings }
 struct Studio: View {
     @AppStorage("think.book.v1") private var data = Data()
     @AppStorage("think.draft.text") private var draft = ""
     @AppStorage("think.draft.step") private var draftStep = ""
     @State private var book = Notebook()
+    @AppStorage("think.journal.v1") private var coverData = Data()
+    @State private var cover: JournalCover?
+    @State private var editingCover = false
     @State private var page = Page.spark
     @State private var showRewards = false
     @State private var editing: Idea?
@@ -53,16 +56,28 @@ struct Studio: View {
     let accent = Paper.blue
     var body: some View {
         ZStack {
-            if page == .collection { archive.transition(.opacity) }
+            if cover == nil || editingCover {
+                JournalSetup(existing:cover,onCancel:{ editingCover = false }) { newCover in
+                    guard let encoded = try? JSONEncoder().encode(newCover) else { return }
+                    coverData = encoded
+                    cover = newCover
+                    editingCover = false
+                }.transition(.opacity)
+            } else if page == .collection { archive.transition(.opacity) }
             else if page == .editor { editor.transition(.opacity.combined(with: .offset(y: reduced ? 0 : 12))) }
+            else if page == .settings { settings.transition(.opacity) }
             else { capture.transition(.opacity) }
         }
         .animation(reduced ? nil : .easeInOut(duration: 0.32), value: page)
-        .preferredColorScheme(darkTheme ? .dark : .light)
-        .buttonStyle(InkButton())
-        .fontDesign(.monospaced)
+        .animation(reduced ? nil : .easeInOut(duration:0.35),value:cover != nil && !editingCover)
+        .preferredColorScheme(cover == nil || editingCover || page == .spark || darkTheme ? .dark : .light)
+        .safeAreaInset(edge:.bottom,spacing:0) {
+            if cover != nil && !editingCover && page != .editor { menu }
+        }
+        .buttonStyle(.plain)
         .tint(Paper.blue)
         .onAppear {
+            cover = try? JSONDecoder().decode(JournalCover.self,from:coverData)
             guard !data.isEmpty else { return }
             do { book = try JSONDecoder().decode(Notebook.self, from: data) }
             catch { storageError = true }
@@ -114,44 +129,79 @@ struct Studio: View {
         if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil }
         page = .collection
     }
-    private var balance: some View {
-        Button { showRewards = true } label: {
-            HStack(spacing: 7) {
-                SparkShape().frame(width: 13, height: 13)
-                Text("\(book.balance)").monospacedDigit()
-            }.padding(.horizontal, 14).frame(minHeight: 44)
-             
-        }.accessibilityLabel("Мои звёзды, \(book.balance)")
-    }
     private var capture: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                HStack {
-                    Button { darkTheme.toggle() } label: {
-                        Image(systemName:darkTheme ? "sun.max" : "moon").frame(width:40,height:42)
-                    }.accessibilityLabel(darkTheme ? "Светлая тема" : "Тёмная тема")
-                    Spacer(); balance
+        VStack(spacing:0) {
+            HStack(spacing:9) {
+                SparkShape().fill(.white).frame(width:17,height:17)
+                Text("thinkinbrain").font(.system(size:15,weight:.semibold)).tracking(0.15)
+            }.foregroundStyle(.white).frame(height:52)
+            Spacer(minLength:4)
+            ParticleStar(cool:book.cool) {
+                UIImpactFeedbackGenerator(style:.soft).impactOccurred()
+                begin()
+            }.aspectRatio(1.12,contentMode:.fit)
+            Text("запиши идею пока не забыл")
+                .font(.subheadline).foregroundStyle(Color(white:0.62)).padding(.horizontal,20)
+                .multilineTextAlignment(.center)
+            Spacer(minLength:12)
+        }.frame(maxWidth:.infinity)
+         .background(Color.black.ignoresSafeArea())
+    }
+
+    private var menu: some View {
+        HStack(spacing:4) {
+            tab(.spark, "Главная", "circle.dotted")
+            tab(.collection, "Мои идеи", "books.vertical")
+            tab(.settings, "Настройки", "slider.horizontal.3")
+        }.padding(.horizontal,16).padding(.top,8).padding(.bottom,4)
+         .background((page == .spark ? Color.black : Paper.sheet).ignoresSafeArea(edges:.bottom))
+         .overlay(alignment:.top) { Rectangle().fill(.primary.opacity(0.09)).frame(height:1) }
+    }
+
+    private func tab(_ tab: Page, _ title: String, _ icon: String) -> some View {
+        Button {
+            if tab != page { detail = nil; page = tab }
+        } label: {
+            VStack(spacing:4) {
+                Image(systemName:icon).font(.system(size:19,weight:page == tab ? .semibold : .regular))
+                Text(title).font(.caption2.weight(page == tab ? .semibold : .regular)).lineLimit(1)
+            }.foregroundStyle(page == tab ? (page == .spark ? .white : Paper.ink) : .secondary)
+             .frame(maxWidth:.infinity,minHeight:49).contentShape(Rectangle())
+        }.accessibilityAddTraits(page == tab ? .isSelected : [])
+    }
+
+    private var settings: some View {
+        ScrollView {
+            VStack(alignment:.leading,spacing:22) {
+                Text("Настройки").font(.largeTitle.bold())
+                if let cover {
+                    Button { editingCover = true } label: {
+                        HStack(spacing:16) {
+                            NotebookObject(cover:cover).scaleEffect(0.24)
+                                .frame(width:58,height:74).allowsHitTesting(false).accessibilityHidden(true)
+                            VStack(alignment:.leading,spacing:5) {
+                                Text(cover.title).font(.headline).lineLimit(2)
+                                Text("Название и обложка").font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }.padding(15).background(Paper.card,in:RoundedRectangle(cornerRadius:20))
+                    }
                 }
-                ThinkLetters().frame(width:102,height:32)
-            }.padding(.horizontal,24)
-            Spacer(minLength: 8)
-            VStack(spacing: 12) {
-                ParticleStar(cool: book.cool) {
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                    begin()
-                }.aspectRatio(1.12, contentMode: .fit)
-                Text("Поймай мысль.")
-                    .font(.system(.title,design:.monospaced)).foregroundStyle(Paper.blue)
-                Text("Крути шар пальцем. Коснись, чтобы записать.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }.frame(maxWidth: .infinity)
-            Spacer(minLength: 20)
-            Button { detail = nil; search = ""; dayFilter = nil; page = .collection } label: {
-                Label("Идеи · \(book.ideas.count)", systemImage: "square.stack").font(.callout)
-                    .padding(.horizontal, 20).frame(minHeight: 48)
-            }.padding(.bottom, 12)
-        }.buttonStyle(InkButton()).foregroundStyle(Paper.ink)
-         .background(Paper.sheet.ignoresSafeArea())
+                VStack(spacing:0) {
+                    Toggle(isOn:$darkTheme) { Label("Тёмное оформление",systemImage:"moon") }.padding(17)
+                    Divider().padding(.horizontal,17)
+                    Button { showRewards = true } label: {
+                        HStack {
+                            Label("Звёзды",systemImage:"sparkle")
+                            Spacer()
+                            Text("\(book.balance)").monospacedDigit().foregroundStyle(.secondary)
+                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }.padding(17)
+                    }
+                }.background(Paper.card,in:RoundedRectangle(cornerRadius:20))
+            }.padding(22)
+        }.foregroundStyle(Paper.ink).background(Paper.sheet.ignoresSafeArea())
     }
     private var editor: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -162,7 +212,7 @@ struct Studio: View {
                 Spacer()
                 Text(editing == nil ? "Новая мысль" : "Редактирование").font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
-                Button("Сохранить",action:save).font(.subheadline).padding(.vertical,3)
+                Button("Готово",action:save).font(.subheadline.weight(.semibold)).padding(.vertical,3)
                     .frame(minHeight:44).foregroundStyle(Paper.blue)
                     .disabled(voice.waiting || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
             }
@@ -170,7 +220,7 @@ struct Studio: View {
             ZStack(alignment: .topLeading) {
                 if text.isEmpty { Text(voice.listening ? "Слушаю…" : "О чём ты думаешь?").foregroundStyle(.secondary).padding(.top,8).padding(.leading,5).allowsHitTesting(false) }
                 IdeaTextView(text:$text,listRequest:listRequest,dismissRequest:dismissRequest) { voice.cancel() }
-            }.font(.system(.title2,design:.monospaced))
+            }.font(.system(.title2))
              .onChange(of:text) { _,value in if editing == nil { draft = value } }
             HStack(spacing:12) {
                 Button { voice.cancel(); listRequest += 1 } label: {
@@ -209,27 +259,21 @@ struct Studio: View {
     }
     private var archive: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Button {
-                    voice.cancel()
-                    if detail == nil { page = .spark } else { detail = nil }
-                } label: {
-                    Label(detail == nil ? "Главная" : "Все идеи", systemImage: "chevron.left")
-                        .frame(minHeight: 44)
-                }
-                Spacer()
-                balance
+            if detail != nil {
+                Button { detail = nil } label: {
+                    Label("Все идеи",systemImage:"chevron.left").frame(minHeight:44)
+                }.foregroundStyle(.secondary)
             }
             if let idea = detail {
-                Text("Идея").font(.custom("Menlo-Bold",size:34,relativeTo:.largeTitle))
+                Text("Идея").font(.largeTitle.bold())
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if idea.flower == true { Flower().frame(width:42,height:58).frame(maxWidth:.infinity) }
                         Text("Дата создания").font(.caption).foregroundStyle(Paper.blue)
-                        Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.custom("Menlo-Regular",size:15,relativeTo:.subheadline))
+                        Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.subheadline)
                         Divider()
                         Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                            .font(.custom("Menlo-Regular",size:21,relativeTo:.title3)).textSelection(.enabled)
+                            .font(.system(.title3,design:.serif)).textSelection(.enabled)
                         if !idea.step.isEmpty { Text(idea.step) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
                      .foregroundStyle(Paper.ink).background(Paper.card,in:RoundedRectangle(cornerRadius:8))
@@ -238,7 +282,7 @@ struct Studio: View {
                     .foregroundStyle(Paper.blue)
             } else {
                 HStack {
-                    Text("Идеи").font(.custom("Menlo-Bold",size:34,relativeTo:.largeTitle))
+                    Text("Мои идеи").font(.largeTitle.bold())
                     Spacer()
                     Button {
                         calendarDay = dayFilter ?? Date()
@@ -266,7 +310,7 @@ struct Studio: View {
                                 .foregroundStyle(.secondary).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
-                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.custom("Menlo-Regular",size:17,relativeTo:.headline)).padding(.top,8)
+                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.subheadline.weight(.semibold)).padding(.top,8)
                             ForEach(section.value) { idea in
                                 Button {
                                     detail = idea
@@ -279,22 +323,23 @@ struct Studio: View {
                                                 Text(idea.audio == nil ? "Текст" : "Голос")
                                                 Text("·")
                                                 Text(idea.created,style:.time)
-                                            }.font(.custom("Menlo-Regular",size:12,relativeTo:.caption)).foregroundStyle(Paper.ink.opacity(0.7))
+                                            }.font(.caption).foregroundStyle(Paper.ink.opacity(0.7))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                                                .font(.custom("Menlo-Regular",size:21,relativeTo:.title3)).lineLimit(3)
+                                                .font(.system(.title3,design:.serif)).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
                                         Image(systemName:"chevron.right").foregroundStyle(Paper.blue)
                                     }.multilineTextAlignment(.leading).padding(16).foregroundStyle(Paper.ink)
-                                     
+                                     .background(Paper.card,in:RoundedRectangle(cornerRadius:17))
+                                     .overlay { RoundedRectangle(cornerRadius:17).strokeBorder(Paper.ink.opacity(0.06)).allowsHitTesting(false) }
                                 }
                             }
                         }
                     }
                 }.scrollDismissesKeyboard(.interactively)
-                Button { begin() } label: { Label("Новая идея",systemImage:"plus").font(.custom("Menlo-Regular",size:17,relativeTo:.headline)).frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(Paper.blue)
+                Button { begin() } label: { Label("Новая идея",systemImage:"plus").font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:48) }
+                    .buttonStyle(JournalPrimary())
             }
-        }.font(.custom("Menlo-Regular",size:17,relativeTo:.body)).buttonStyle(InkButton()).padding(.horizontal,22).padding(.bottom,8)
+        }.buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
          .foregroundStyle(Paper.ink).background(Paper.sheet.ignoresSafeArea())
          .environment(\.locale,Locale(identifier:"ru"))
          .sheet(isPresented:$calendarOpen) {
@@ -452,7 +497,7 @@ struct IdeaTextView: UIViewRepresentable {
         v.backgroundColor = .clear
         v.delegate = context.coordinator
         v.adjustsFontForContentSizeCategory = true
-        v.font = UIFontMetrics(forTextStyle:.title2).scaledFont(for:UIFont.monospacedSystemFont(ofSize:21, weight:.regular))
+        v.font = UIFontMetrics(forTextStyle:.title2).scaledFont(for:UIFont.systemFont(ofSize:21))
         v.textContainerInset = UIEdgeInsets(top:8,left:0,bottom:8,right:0)
         v.accessibilityLabel = "Текст идеи"
         v.text = text
@@ -512,31 +557,6 @@ struct IdeaTextView: UIViewRepresentable {
     }
 }
 
-struct ThinkLetters: View {
-    var body: some View {
-        Canvas { c,size in
-            c.scaleBy(x:size.width/115,y:size.height/35)
-            var p = Path()
-            func line(_ a:CGPoint,_ b:CGPoint) { p.move(to:a); p.addLine(to:b) }
-            line(CGPoint(x:7,y:5),CGPoint(x:7,y:24))
-            p.addQuadCurve(to:CGPoint(x:18,y:29),control:CGPoint(x:7,y:33))
-            line(CGPoint(x:1,y:14),CGPoint(x:18,y:14))
-            line(CGPoint(x:24,y:2),CGPoint(x:24,y:32))
-            p.move(to:CGPoint(x:24,y:24));p.addQuadCurve(to:CGPoint(x:43,y:22),control:CGPoint(x:42,y:2))
-            p.addLine(to:CGPoint(x:43,y:32))
-            line(CGPoint(x:53,y:13),CGPoint(x:53,y:32))
-            line(CGPoint(x:64,y:13),CGPoint(x:64,y:32))
-            p.move(to:CGPoint(x:64,y:24));p.addQuadCurve(to:CGPoint(x:84,y:22),control:CGPoint(x:83,y:2))
-            p.addLine(to:CGPoint(x:84,y:32))
-            line(CGPoint(x:95,y:2),CGPoint(x:95,y:32))
-            line(CGPoint(x:96,y:24),CGPoint(x:112,y:13))
-            line(CGPoint(x:102,y:20),CGPoint(x:113,y:32))
-            c.stroke(p,with:.color(Paper.ink),style:StrokeStyle(lineWidth:4.6,lineCap:.butt,lineJoin:.round))
-            c.fill(Path(ellipseIn:CGRect(x:50.2,y:3.2,width:5.6,height:5.6)),with:.color(Paper.ink))
-        }.accessibilityLabel("think")
-    }
-}
-
 struct InkButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.padding(.horizontal,5)
@@ -569,3 +589,232 @@ struct SpeechPhrases {
         return [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
     }
 }
+
+
+import PhotosUI
+import ImageIO
+
+struct JournalCover: Codable {
+    var title = ""
+    var shade = 0
+    var photo: Data?
+
+    static let colors: [Color] = [
+        Color(red:0.28,green:0.28,blue:0.30), Color(red:0.37,green:0.22,blue:0.22),
+        Color(red:0.23,green:0.33,blue:0.30), Color(red:0.23,green:0.29,blue:0.42),
+        Color(red:0.47,green:0.39,blue:0.28)
+    ]
+    static let names = ["Графит", "Бордо", "Шалфей", "Индиго", "Песок"]
+}
+
+struct NotebookObject: View {
+    let cover: JournalCover
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var angle = -20.0
+    @State private var pitch = 9.0
+    @State private var pan: CGSize = .zero
+    private var yaw: Double { angle + Double(pan.width) * 0.64 }
+    private var tilt: Double { min(42,max(-42,pitch - Double(pan.height)*0.2)) }
+    private var back: Bool { cos(yaw * .pi / 180) < 0 }
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Color(white:0.15)).frame(width:182,height:258).offset(x:10,y:5)
+            RoundedRectangle(cornerRadius:4).fill(Color(white:0.78)).frame(width:180,height:251).offset(x:9,y:4)
+                .overlay {
+                    Canvas { context, size in
+                        var lines = Path()
+                        for n in 0..<39 {
+                            let y = 8 + Double(n)*6.4
+                            lines.move(to:CGPoint(x:size.width-8,y:y))
+                            lines.addLine(to:CGPoint(x:size.width+9,y:y))
+                        }
+                        context.stroke(lines,with:.color(.black.opacity(0.25)),lineWidth:0.5)
+                    }.frame(width:182,height:258).allowsHitTesting(false)
+                }
+            face
+                .rotation3DEffect(.degrees(back ? 180 : 0),axis:(x:0,y:1,z:0))
+        }
+        .rotation3DEffect(.degrees(tilt),axis:(x:1,y:0,z:0),perspective:0)
+        .rotation3DEffect(.degrees(yaw),axis:(x:0,y:1,z:0),perspective:0.58)
+        .scaleEffect(1 + 0.025 * abs(sin(yaw * .pi/180)))
+        .frame(width:236,height:280)
+        .contentShape(Rectangle())
+        .gesture(DragGesture().onChanged { pan = $0.translation }.onEnded { value in
+            angle = yaw.truncatingRemainder(dividingBy:360)
+            pitch = tilt
+            pan = .zero
+            if !reduced {
+                withAnimation(.spring(response:0.54,dampingFraction:0.82)) {
+                    let momentum = value.predictedEndTranslation.width-value.translation.width
+                    angle += min(95,max(-95,Double(momentum)*0.3))
+                    pitch *= 0.7
+                }
+            }
+        })
+        .accessibilityLabel(cover.title.isEmpty ? "Обложка дневника" : cover.title)
+        .accessibilityAction(named:Text("Повернуть блокнот")) { angle += 45 }
+    }
+
+    private var face: some View {
+        ZStack(alignment:.leading) {
+            JournalCover.colors[cover.shade]
+            if let data = cover.photo, let photo = UIImage(data:data) {
+                Image(uiImage:photo).resizable().scaledToFill().frame(width:182,height:258).clipped()
+            }
+            LinearGradient(colors:[.white.opacity(0.24),.clear,.black.opacity(0.28)],startPoint:.topLeading,endPoint:.bottomTrailing)
+            Canvas { context, size in
+                var light = Path(), dark = Path()
+                for index in 0..<2300 {
+                    let x = Double((index*151 + index*index*11)%4093)/4093*size.width
+                    let y = Double((index*379 + index*index*7)%4099)/4099*size.height
+                    let bounds = CGRect(x:x,y:y,width:1.2+Double(index%3)*0.45,height:0.48)
+                    if index.isMultiple(of:2) { light.addRect(bounds) } else { dark.addRect(bounds) }
+                }
+                context.fill(light,with:.color(.white.opacity(0.20)))
+                context.fill(dark,with:.color(.black.opacity(0.31)))
+            }
+            Rectangle().fill(.linearGradient(colors:[.black.opacity(0.42),.white.opacity(0.15),.black.opacity(0.24),.clear],startPoint:.leading,endPoint:.trailing)).frame(width:17)
+            if !back && !cover.title.isEmpty {
+                Text(cover.title).font(.system(size:23,weight:.semibold,design:.serif))
+                    .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).foregroundStyle(.white)
+                    .shadow(color:.black.opacity(0.78),radius:3,y:1)
+                    .padding(.horizontal,19).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top).padding(.top,40)
+            }
+        }.frame(width:182,height:258)
+         .clipShape(RoundedRectangle(cornerRadius:5)).overlay { RoundedRectangle(cornerRadius:5).strokeBorder(.white.opacity(0.16)) }
+    }
+}
+
+enum CoverStage { case intro, title, cover }
+
+struct JournalSetup: View {
+    let existing: JournalCover?
+    let onCancel: () -> Void
+    let onSave: (JournalCover) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var stage: CoverStage
+    @State private var cover: JournalCover
+    @State private var selection: PhotosPickerItem?
+    @State private var loading = false
+    @State private var photoError = false
+    @State private var leaving = false
+    @FocusState private var typing: Bool
+
+    init(existing: JournalCover?, onCancel: @escaping () -> Void, onSave: @escaping (JournalCover) -> Void) {
+        self.existing = existing
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _stage = State(initialValue: existing == nil ? .intro : .title)
+        _cover = State(initialValue: existing ?? JournalCover())
+    }
+
+    var body: some View {
+        VStack(spacing:0) {
+            if stage != .intro {
+                HStack {
+                    Button {
+                        typing = false
+                        if stage == .cover { change(.title) }
+                        else if existing == nil { change(.intro) } else { onCancel() }
+                    } label: { Image(systemName:"chevron.left").frame(width:44,height:44) }
+                    .accessibilityLabel("Назад")
+                    Spacer()
+                    Text(stage == .title ? "Название" : "Обложка").font(.subheadline.weight(.medium))
+                    Spacer()
+                    Color.clear.frame(width:44,height:44).accessibilityHidden(true)
+                }.padding(.horizontal,20)
+            }
+            Spacer(minLength:4)
+            NotebookObject(cover:cover)
+                .scaleEffect(leaving && !reduced ? 1.19 : 1)
+                .frame(maxHeight:290)
+            Spacer(minLength:4)
+
+            if stage == .intro {
+                Button { change(.title) } label: {
+                    Label("создай свой дневник идей",systemImage:"arrow.right").font(.callout)
+                        .padding(.horizontal,19).frame(minHeight:50)
+                        .background(.white.opacity(0.10),in:Capsule())
+                }.transition(.move(edge:.bottom).combined(with:.opacity))
+            } else if stage == .title {
+                VStack(spacing:12) {
+                    TextField("Название дневника",text:$cover.title)
+                        .focused($typing).submitLabel(.next).onSubmit(next)
+                        .onChange(of:cover.title) { _, title in if title.count > 55 { cover.title = String(title.prefix(55)) } }
+                        .textFieldStyle(.plain).padding(14).background(.white.opacity(0.10),in:RoundedRectangle(cornerRadius:12))
+                    Button("Далее",action:next).buttonStyle(JournalPrimary()).disabled(cleanTitle.isEmpty)
+                }.padding(.horizontal,26)
+            } else {
+                VStack(spacing:14) {
+                    HStack(spacing:14) {
+                        ForEach(JournalCover.colors.indices,id:\.self) { index in
+                            Button {
+                                selection = nil
+                                cover.shade = index
+                                cover.photo = nil
+                            } label: {
+                                Circle().fill(JournalCover.colors[index]).frame(width:35,height:35)
+                                    .padding(4).overlay { Circle().strokeBorder(cover.photo == nil && cover.shade == index ? .white : .clear,lineWidth:1) }
+                            }.accessibilityLabel(JournalCover.names[index])
+                             .accessibilityAddTraits(cover.photo == nil && cover.shade == index ? .isSelected : [])
+                        }
+                    }
+                    PhotosPicker(selection:$selection,matching:.images) {
+                        Label(loading ? "Загрузка…" : "Фото из галереи",systemImage:"photo").frame(minHeight:44)
+                    }
+                    Button(existing == nil ? "Создать дневник" : "Сохранить обложку",action:complete)
+                        .buttonStyle(JournalPrimary()).disabled(loading || leaving)
+                }.padding(.horizontal,26)
+            }
+        }.padding(.bottom,16).foregroundStyle(.white).background(.black.ignoresSafeArea())
+         .opacity(leaving ? 0 : 1)
+         .buttonStyle(.plain).preferredColorScheme(.dark)
+         .task(id:selection) {
+             guard let item = selection else { loading = false; return }
+             loading = true
+             do {
+                 guard let data = try await item.loadTransferable(type:Data.self),
+                       let source = CGImageSourceCreateWithData(data as CFData,nil),
+                       let image = CGImageSourceCreateThumbnailAtIndex(source,0,[
+                           kCGImageSourceCreateThumbnailFromImageAlways:true,
+                           kCGImageSourceCreateThumbnailWithTransform:true,
+                           kCGImageSourceThumbnailMaxPixelSize:1200
+                       ] as CFDictionary),
+                       let jpeg = UIImage(cgImage:image).jpegData(compressionQuality:0.82) else {
+                     throw CocoaError(.fileReadCorruptFile)
+                 }
+                 guard !Task.isCancelled, selection == item else { return }
+                 cover.photo = jpeg
+             } catch { if !Task.isCancelled { photoError = true } }
+             if selection == item { loading = false }
+         }
+         .alert("Фото не открылось",isPresented:$photoError) { Button("Закрыть",role:.cancel) {} }
+    }
+    private var cleanTitle: String { cover.title.trimmingCharacters(in:.whitespacesAndNewlines) }
+    private func change(_ next: CoverStage) { withAnimation(reduced ? nil : .easeInOut(duration:0.28)) { stage = next } }
+    private func next() {
+        guard !cleanTitle.isEmpty else { return }
+        cover.title = cleanTitle
+        typing = false
+        change(.cover)
+    }
+    private func complete() {
+        if reduced { onSave(cover); return }
+        withAnimation(.easeIn(duration:0.28)) { leaving = true }
+        Task { @MainActor in
+            try? await Task.sleep(for:.milliseconds(290))
+            onSave(cover)
+        }
+    }
+}
+
+struct JournalPrimary: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.body.weight(.semibold)).frame(maxWidth:.infinity,minHeight:49)
+            .foregroundStyle(Paper.sheet).background(Paper.ink,in:RoundedRectangle(cornerRadius:16))
+            .opacity(!enabled ? 0.38 : configuration.isPressed ? 0.72 : 1)
+    }
+}
+

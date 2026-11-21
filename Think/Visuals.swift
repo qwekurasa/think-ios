@@ -25,10 +25,10 @@ enum Paper {
     private static func inkColor(_ light: UIColor,_ dark: UIColor) -> Color {
         Color(uiColor:UIColor { $0.userInterfaceStyle == .dark ? dark : light })
     }
-    static let sheet = inkColor(UIColor(white:0.875,alpha:1),UIColor(white:0.075,alpha:1))
+    static let sheet = inkColor(UIColor(white:0.965,alpha:1),UIColor(white:0.075,alpha:1))
     static let ink = inkColor(UIColor(white:0.085,alpha:1),UIColor(white:0.94,alpha:1))
-    static let blue = inkColor(UIColor(red:0.16,green:0.095,blue:0.72,alpha:1),UIColor(red:0.68,green:0.65,blue:1,alpha:1))
-    static let card = inkColor(UIColor(white:0.93,alpha:1),UIColor(white:0.14,alpha:1))
+    static let blue = inkColor(UIColor(red:0.22,green:0.35,blue:0.50,alpha:1),UIColor(red:0.67,green:0.76,blue:0.89,alpha:1))
+    static let card = inkColor(UIColor.white,UIColor(white:0.14,alpha:1))
 }
 
 struct Flower: View {
