@@ -7,9 +7,10 @@ struct SparkShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         for i in 0..<256 {
-            let a = Double(i) * .pi / 128
-            let r = 0.46 * (0.37 + 0.63 * pow(abs(cos(4 * a)), 6))
-            let point = CGPoint(x: rect.midX + rect.width * r * cos(a), y: rect.midY + rect.height * r * sin(a))
+            let a: Double = Double(i) * Double.pi / 128
+            let r: Double = 0.46 * (0.37 + 0.63 * pow(abs(cos(4.0 * a)), 6.0))
+            let point = CGPoint(x: rect.midX + rect.width * CGFloat(r * cos(a)),
+                                y: rect.midY + rect.height * CGFloat(r * sin(a)))
             if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
         }
         path.closeSubpath()
@@ -65,15 +66,15 @@ struct QRSheet: View {
     private var payload: String { idea.step.isEmpty ? idea.text : idea.text + "\n\n" + idea.step }
     var body: some View {
         VStack(spacing: 22) {
-            Text("Поделиться мыслью").font(.title.bold())
+            Text("���������� �����").font(.title.bold())
             if let image {
                 Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
                     .padding(22).background(.white).frame(maxWidth: 320)
                     .mask { GeometryReader { g in Rectangle().frame(height: g.size.height * (revealed ? 1 : 0)) } }
-                    .accessibilityLabel("QR-код с текстом идеи")
-            } else { Text("Готовим код…").foregroundStyle(.secondary) }
-            Text("Наведи камеру или QR-сканер на код, чтобы прочитать идею.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            ShareLink(item: payload) { Label("Отправить текст", systemImage: "square.and.arrow.up") }
+                    .accessibilityLabel("QR-��� � ⥪�⮬ ����")
+            } else { Text("��⮢�� ���:").foregroundStyle(.secondary) }
+            Text("������ ������ ��� QR-᪠��� �� ���, �⮡� ������ ����.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            ShareLink(item: payload) { Label("��ࠢ��� ⥪��", systemImage: "square.and.arrow.up") }
         }.padding(26).frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white).preferredColorScheme(.light)
         .task {
@@ -89,3 +90,4 @@ struct QRSheet: View {
         }
     }
 }
+
