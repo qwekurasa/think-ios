@@ -711,95 +711,118 @@ struct JournalSetup: View {
     }
 
     var body: some View {
+        content
+            .task { await revealPrompt() }
+            .task(id:selection) { await readPhoto() }
+            .alert("Фото не открылось",isPresented:$photoError) { Button("Закрыть",role:.cancel) {} }
+    }
+
+    private var content: some View {
         VStack(spacing:0) {
-            if stage != .intro {
-                HStack {
-                    Button {
-                        typing = false
-                        if stage == .cover { change(.title) }
-                        else if existing == nil { change(.intro) } else { onCancel() }
-                    } label: { Image(systemName:"chevron.left").frame(width:44,height:44) }
-                    .accessibilityLabel("Назад")
-                    Spacer()
-                    Text(stage == .title ? "Название" : "Обложка").font(.subheadline.weight(.medium))
-                    Spacer()
-                    Color.clear.frame(width:44,height:44).accessibilityHidden(true)
-                }.padding(.horizontal,20)
-            }
+            if stage != .intro { header }
             Spacer(minLength:4)
             NotebookObject(cover:cover)
                 .scaleEffect(typing ? 0.53 : leaving && !reduced ? 1.19 : 1)
                 .frame(height:typing ? 150 : 280)
                 .animation(reduced ? nil : .easeInOut(duration:0.24),value:typing)
+                .simultaneousGesture(TapGesture().onEnded { if stage == .intro { change(.title) } })
             Spacer(minLength:4)
-
-            if stage == .intro {
-                Button { change(.title) } label: {
-                    Text("создай свой дневник идей").font(.callout)
-                        .padding(.horizontal,19).frame(minHeight:50)
-                        .background(.white.opacity(0.10),in:Capsule())
-                }.opacity(promptVisible ? 1 : 0)
-                 .offset(y:promptVisible || reduced ? 0 : 16)
-                 .accessibilityHidden(!promptVisible)
-            } else if stage == .title {
-                VStack(spacing:12) {
-                    TextField("Название дневника",text:$cover.title)
-                        .focused($typing).submitLabel(.next).onSubmit(next)
-                        .onChange(of:cover.title) { _, title in if title.count > 55 { cover.title = String(title.prefix(55)) } }
-                        .textFieldStyle(.plain).padding(14).background(.white.opacity(0.10),in:RoundedRectangle(cornerRadius:12))
-                    Button("Далее",action:next).buttonStyle(JournalPrimary()).disabled(cleanTitle.isEmpty)
-                }.padding(.horizontal,26)
-            } else {
-                VStack(spacing:14) {
-                    HStack(spacing:14) {
-                        ForEach(JournalCover.colors.indices,id:\.self) { index in
-                            Button {
-                                selection = nil
-                                cover.shade = index
-                                cover.photo = nil
-                            } label: {
-                                Circle().fill(JournalCover.colors[index]).frame(width:35,height:35)
-                                    .padding(4).overlay { Circle().strokeBorder(cover.photo == nil && cover.shade == index ? .white : .clear,lineWidth:1) }
-                            }.accessibilityLabel(JournalCover.names[index])
-                             .accessibilityAddTraits(cover.photo == nil && cover.shade == index ? .isSelected : [])
-                        }
-                    }
-                    PhotosPicker(selection:$selection,matching:.images) {
-                        Label(loading ? "Загрузка…" : "Фото из галереи",systemImage:"photo").frame(minHeight:44)
-                    }
-                    Button(existing == nil ? "Создать дневник" : "Сохранить обложку",action:complete)
-                        .buttonStyle(JournalPrimary()).disabled(loading || leaving)
-                }.padding(.horizontal,26)
-            }
-        }.padding(.bottom,16).foregroundStyle(.white).background(.black.ignoresSafeArea())
-         .opacity(leaving ? 0 : 1)
+            controls
+        }.padding(.bottom,16).foregroundStyle(.white)
+         .background(.black.ignoresSafeArea()).opacity(leaving ? 0 : 1)
          .buttonStyle(.plain).preferredColorScheme(.dark)
-         .task {
-             if !reduced { try? await Task.sleep(for:.milliseconds(200)) }
-             guard !Task.isCancelled else { return }
-             withAnimation(reduced ? nil : .easeOut(duration:0.3)) { promptVisible = true }
-         }
-         .task(id:selection) {
-             guard let item = selection else { loading = false; return }
-             loading = true
-             do {
-                 guard let data = try await item.loadTransferable(type:Data.self),
-                       let source = CGImageSourceCreateWithData(data as CFData,nil),
-                       let image = CGImageSourceCreateThumbnailAtIndex(source,0,[
-                           kCGImageSourceCreateThumbnailFromImageAlways:true,
-                           kCGImageSourceCreateThumbnailWithTransform:true,
-                           kCGImageSourceThumbnailMaxPixelSize:1200
-                       ] as CFDictionary),
-                       let jpeg = UIImage(cgImage:image).jpegData(compressionQuality:0.82) else {
-                     throw CocoaError(.fileReadCorruptFile)
-                 }
-                 guard !Task.isCancelled, selection == item else { return }
-                 cover.photo = jpeg
-             } catch { if !Task.isCancelled { photoError = true } }
-             if selection == item { loading = false }
-         }
-         .alert("Фото не открылось",isPresented:$photoError) { Button("Закрыть",role:.cancel) {} }
     }
+
+    private var header: some View {
+        HStack {
+            Button {
+                typing = false
+                if stage == .cover { change(.title) }
+                else if existing == nil { change(.intro) } else { onCancel() }
+            } label: { Image(systemName:"chevron.left").frame(width:44,height:44) }
+            .accessibilityLabel("Назад")
+            Spacer()
+            Text(stage == .title ? "Название" : "Обложка").font(.subheadline.weight(.medium))
+            Spacer()
+            Color.clear.frame(width:44,height:44).accessibilityHidden(true)
+        }.padding(.horizontal,20)
+    }
+
+    @ViewBuilder private var controls: some View {
+        switch stage {
+        case .intro:
+            Button { change(.title) } label: {
+                Text("создай свой дневник идей").font(.callout)
+                    .padding(.horizontal,19).frame(minHeight:50)
+                    .background(.white.opacity(0.10),in:Capsule())
+            }.opacity(promptVisible ? 1 : 0)
+             .offset(y:promptVisible || reduced ? 0 : 16).accessibilityHidden(!promptVisible)
+        case .title:
+            VStack(spacing:12) {
+                TextField("Название дневника",text:$cover.title)
+                    .focused($typing).submitLabel(.next).onSubmit(next)
+                    .onChange(of:cover.title) { _, title in
+                        if title.count > 55 { cover.title = String(title.prefix(55)) }
+                    }
+                    .textFieldStyle(.plain).padding(14)
+                    .background(.white.opacity(0.10),in:RoundedRectangle(cornerRadius:12))
+                Button("Далее",action:next).buttonStyle(JournalPrimary()).disabled(cleanTitle.isEmpty)
+            }.padding(.horizontal,26)
+        case .cover:
+            VStack(spacing:14) {
+                HStack(spacing:14) {
+                    ForEach(JournalCover.colors.indices,id:\.self) { index in swatch(index) }
+                }
+                PhotosPicker(selection:$selection,matching:.images) {
+                    Label(loading ? "Загрузка…" : "Фото из галереи",systemImage:"photo").frame(minHeight:44)
+                }
+                Button(existing == nil ? "Создать дневник" : "Сохранить обложку",action:complete)
+                    .buttonStyle(JournalPrimary()).disabled(loading || leaving)
+            }.padding(.horizontal,26)
+        }
+    }
+
+    private func swatch(_ index: Int) -> some View {
+        let selected = cover.photo == nil && cover.shade == index
+        return Button {
+            selection = nil
+            cover.shade = index
+            cover.photo = nil
+        } label: {
+            Circle().fill(JournalCover.colors[index]).frame(width:35,height:35)
+                .padding(4).overlay { Circle().strokeBorder(selected ? Color.white : Color.clear,lineWidth:1) }
+        }.accessibilityLabel(JournalCover.names[index]).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func revealPrompt() async {
+        if !reduced { try? await Task.sleep(for:.milliseconds(200)) }
+        guard !Task.isCancelled else { return }
+        withAnimation(reduced ? nil : .easeOut(duration:0.3)) { promptVisible = true }
+    }
+
+    private func readPhoto() async {
+        guard let item = selection else { loading = false; return }
+        loading = true
+        do {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways:true,
+                kCGImageSourceCreateThumbnailWithTransform:true,
+                kCGImageSourceThumbnailMaxPixelSize:1200
+            ]
+            guard let data = try await item.loadTransferable(type:Data.self),
+                  let source = CGImageSourceCreateWithData(data as CFData,nil),
+                  let image = CGImageSourceCreateThumbnailAtIndex(source,0,options as CFDictionary),
+                  let jpeg = UIImage(cgImage:image).jpegData(compressionQuality:0.82) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            guard !Task.isCancelled, selection == item else { return }
+            cover.photo = jpeg
+        } catch {
+            if !Task.isCancelled { photoError = true }
+        }
+        if selection == item { loading = false }
+    }
+
     private var cleanTitle: String { cover.title.trimmingCharacters(in:.whitespacesAndNewlines) }
     private func change(_ next: CoverStage) { withAnimation(reduced ? nil : .easeInOut(duration:0.28)) { stage = next } }
     private func next() {
