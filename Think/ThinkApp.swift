@@ -803,7 +803,8 @@ struct SpeechPhrases {
 
         // A recognizer can replay an older, shorter hypothesis, even as its final result.
         if !shifted && incoming.count < accepted.count {
-            if accepted.starts(with:incoming) || accepted.suffix(incoming.count).elementsEqual(incoming) {
+            let isStaleSuffix = accepted.suffix(incoming.count).elementsEqual(incoming)
+            if incoming != previous && (accepted.starts(with:incoming) || isStaleSuffix) {
                 return value
             }
             let replaysFrozen = !committed.isEmpty && incoming.starts(with:committed)
@@ -829,7 +830,6 @@ struct SpeechPhrases {
         let beginsInsideCurrent = start > (firstTime ?? start) + 0.18 && overlap > 0
         if !current.isEmpty && !extended &&
             (shifted || beginsInsideCurrent || quiet && (clockReset || incoming.first != previous.first)) {
-            if closing && clockReset && overlap == incoming.count { return value }
             if overlap == incoming.count {
                 return value
             }
