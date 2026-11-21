@@ -22,7 +22,7 @@ jobs:
           APP=Payload/Think.app
           EXEC=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$APP/Info.plist")
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleSupportedPlatforms:0' "$APP/Info.plist")" = iPhoneOS
-          lipo -verify_arch arm64 "$APP/$EXEC"
+          lipo "$APP/$EXEC" -verify_arch arm64
           zip -qry "$GITHUB_WORKSPACE/Think.ipa" Payload
           unzip -tq "$GITHUB_WORKSPACE/Think.ipa"
           shasum -a 256 "$GITHUB_WORKSPACE/Think.ipa"
