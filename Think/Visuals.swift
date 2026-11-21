@@ -18,114 +18,142 @@ struct SparkShape: Shape {
     }
 }
 
+import SwiftUI
+import SpriteKit
+import simd
+
 struct ParticleStar: View {
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.scenePhase) private var phase
     let cool: Bool
     let onTap: () -> Void
-    @State private var yaw = 0.0
-    @State private var pitch = 0.0
-    @State private var spinX = 0.0
-    @State private var spinY = 0.0
-    @State private var released = Date()
-    @State private var dragging = false
-    @State private var previous = CGSize.zero
-    @State private var motionPhase = 0.0
-    private func coast(_ now: Date) -> Double {
-        (1-exp(-3*max(0,now.timeIntervalSince(released))))/3
-    }
-    private var interaction: some Gesture {
-        DragGesture(minimumDistance: 6).onChanged { value in
-            if !dragging {
-                let distance = reduced ? 0 : coast(value.time)
-                yaw += spinX*distance; pitch += spinY*distance
-                motionPhase += hypot(spinX,spinY)*distance
-                previous = .zero; dragging = true
-            }
-            let dx = Double(value.translation.width-previous.width)*0.013
-            let dy = Double(value.translation.height-previous.height)*0.013
-            yaw += dx; pitch += dy
-            motionPhase += hypot(dx,dy)
-            previous = value.translation
-            spinX = max(-12,min(12,Double(value.velocity.width)*0.013))
-            spinY = max(-12,min(12,Double(value.velocity.height)*0.013))
-        }.onEnded { value in
-            spinX = reduced ? 0 : max(-12,min(12,Double(value.velocity.width)*0.013))
-            spinY = reduced ? 0 : max(-12,min(12,Double(value.velocity.height)*0.013))
-            released = value.time; dragging = false
-        }.exclusively(before: TapGesture().onEnded { onTap() })
-    }
-    @State private var start = Date()
+    @State private var scene = OrbScene(size: CGSize(width: 320, height: 320))
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduced || phase != .active)) { timeline in
-            let time = reduced ? 0 : timeline.date.timeIntervalSince(start)
-            let distance = dragging || reduced ? 0 : coast(timeline.date)
-            let turn = yaw + spinX*distance
-            let tilt = pitch + spinY*distance
-            let travel = reduced ? 0 : motionPhase + hypot(spinX,spinY)*distance
-            let particleTime = time + travel*1.6
-            Canvas { context, size in
-                let radius = min(size.width,size.height) * 0.345
-                let cx = size.width / 2, cy = size.height / 2
-                let phase = particleTime.truncatingRemainder(dividingBy: 7.6)
-                let sweep = phase < 3.2 ? min(1,max(0,(phase-0.8)/2.4)) : min(1,max(0,(7.1-phase)/2.1))
-                for row in 1..<52 {
-                    let phi = Double(row) * Double.pi / 52
-                    let count = max(8,Int(110*sin(phi)))
-                    for column in 0..<count {
-                        let a = 2*Double.pi*Double(column)/Double(count) + time*0.12 - turn
-                        let x = sin(phi)*cos(a)
-                        let depth = sin(phi)*sin(a)
-                        let y = cos(phi)*cos(tilt) + depth*sin(tilt)
-                        let z = depth*cos(tilt) - cos(phi)*sin(tilt)
-                        let seed = Double((column*317 + row*751 + row*column*29) % 997)/997
-                        let local = max(0,min(1,(sweep*2.5 - (1-x))*2))
-                        let drift = local*(0.02+seed*0.13)
-                        let px = x + drift*(0.5+cos(a*3+particleTime*2+seed*18))
-                        let py = y + drift*(sin(phi*6+seed*20-particleTime*1.7)-0.4)
-                        let light = 0.23 + 0.67*(z+1)/2
-                        let dot = 0.68 + 0.75*seed + local*0.45
-                        let color = Color(white: cool ? 1.0 : 0.84)
-                        let rect = CGRect(x:cx+radius*px,y:cy+radius*py,width:dot,height:dot)
-                        context.fill(Path(ellipseIn: rect), with: .color(color.opacity(light*(1-0.38*local))))
-                    }
-                }
+        SpriteView(scene: scene, isPaused: phase != .active, preferredFramesPerSecond: 60)
+            .onAppear {
+                scene.scaleMode = .resizeFill
+                scene.configure(yellow: cool, reduced: reduced)
+                scene.onTap = onTap
             }
-        }.contentShape(Rectangle()).gesture(interaction)
-         .accessibilityElement(children:.ignore).accessibilityLabel("Записать идею")
-         .accessibilityAddTraits(.isButton).accessibilityAction { onTap() }
+            .onChange(of: cool) { _, value in scene.configure(yellow: value, reduced: reduced) }
+            .onChange(of: reduced) { _, value in scene.configure(yellow: cool, reduced: value) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Записать идею")
+            .accessibilityAddTraits(.isButton).accessibilityAction { onTap() }
     }
 }
 
-struct QRSheet: View {
-    let idea: Idea
-    @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var revealed = false
-    @State private var image: UIImage?
-    private var payload: String { idea.step.isEmpty ? idea.text : idea.text + "\n\n" + idea.step }
-    var body: some View {
-        VStack(spacing: 22) {
-            Text("Поделиться мыслью").font(.title.bold())
-            if let image {
-                Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
-                    .padding(22).background(.white).frame(maxWidth: 320)
-                    .mask { GeometryReader { g in Rectangle().frame(height: g.size.height * (revealed ? 1 : 0)) } }
-                    .accessibilityLabel("QR-код с текстом идеи")
-            } else { Text("Готовим код…").foregroundStyle(.secondary) }
-            Text("Наведи камеру или QR-сканер на код, чтобы прочитать идею.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            ShareLink(item: payload) { Label("Отправить текст", systemImage: "square.and.arrow.up") }
-        }.padding(26).frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white).preferredColorScheme(.light).tint(.black)
-        .task {
-            let filter = CIFilter.qrCodeGenerator()
-            filter.message = Data(payload.utf8)
-            filter.correctionLevel = "L"
-            guard let output = filter.outputImage else { return }
-            let scaled = output.transformed(by: CGAffineTransform(scaleX: 6, y: 6))
-            guard let cg = CIContext().createCGImage(scaled, from: scaled.extent) else { return }
-            image = UIImage(cgImage: cg)
-            try? await Task.sleep(for: .milliseconds(40))
-            withAnimation(reduced ? nil : .easeOut(duration: 0.65)) { revealed = true }
+final class OrbScene: SKScene {
+    private struct Dot {
+        let normal: SIMD3<Double>
+        let phase: Double
+        let sprite: SKSpriteNode
+    }
+    var onTap: (() -> Void)?
+    private var dots: [Dot] = []
+    private var orientation = simd_quatd(angle: 0, axis: SIMD3(0,1,0))
+    private var velocity = SIMD2<Double>.zero
+    private var pending = SIMD2<Double>.zero
+    private var lastFrame: TimeInterval?
+    private var previousTouch = CGPoint.zero
+    private var origin = CGPoint.zero
+    private var lastInput = 0.0
+    private var held = false
+    private var dragged = false
+    private var clock = 0.0
+    private var reduced = false
+    private var yellow = false
+
+    override func didMove(to view: SKView) {
+        backgroundColor = .black
+        isUserInteractionEnabled = true
+        guard dots.isEmpty else { return }
+        let texture = SKTexture(image: UIGraphicsImageRenderer(size: CGSize(width:8,height:8)).image { ctx in
+            UIColor.white.setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x:1,y:1,width:6,height:6))
+        })
+        for row in 1..<48 {
+            let phi = Double(row) * .pi / 48
+            let count = max(6, Int(96*sin(phi)))
+            for column in 0..<count {
+                let theta = 2*Double.pi*(Double(column)+Double(row%2)*0.5)/Double(count)
+                let seed = Double((row*751 + column*317 + row*column*29)%997)/997
+                let normal = SIMD3(sin(phi)*cos(theta),cos(phi),sin(phi)*sin(theta))
+                let sprite = SKSpriteNode(texture:texture)
+                sprite.colorBlendFactor = 1
+                sprite.size = CGSize(width:1.1+seed,height:1.1+seed)
+                addChild(sprite)
+                dots.append(Dot(normal:normal,phase:seed*2*Double.pi,sprite:sprite))
+            }
+        }
+        configure(yellow:yellow,reduced:reduced)
+    }
+    func configure(yellow: Bool, reduced: Bool) {
+        self.yellow = yellow
+        self.reduced = reduced
+        let color = yellow ? UIColor(red:1,green:0.86,blue:0.48,alpha:1) : UIColor(white:0.93,alpha:1)
+        for dot in dots { dot.sprite.color = color }
+    }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        previousTouch = touch.location(in:self)
+        origin = previousTouch
+        held = true; dragged = false
+        lastInput = touch.timestamp
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard held, let touch = touches.first else { return }
+        let point = touch.location(in:self)
+        if !dragged && hypot(point.x-origin.x,point.y-origin.y) < 5 { return }
+        dragged = true
+        let sensitivity = 2.5/max(65,min(size.width,size.height)*0.345)
+        let delta = SIMD2(Double(point.x-previousTouch.x),Double(point.y-previousTouch.y))*sensitivity
+        let dt = max(1.0/240,min(0.1,touch.timestamp-lastInput))
+        pending += delta
+        let sample = delta/dt
+        let limited = sample * min(1, 11/max(0.001,simd_length(sample)))
+        velocity += (limited-velocity)*(1-exp(-dt*19))
+        previousTouch = point
+        lastInput = touch.timestamp
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard held else { return }
+        let idle = max(0,(touches.first?.timestamp ?? lastInput)-lastInput)
+        velocity *= exp(-idle*18)
+        held = false
+        if !dragged { onTap?() }
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        held = false; velocity = .zero
+    }
+    override func update(_ time: TimeInterval) {
+        let dt = min(0.05,max(0,time-(lastFrame ?? time)))
+        lastFrame = time
+        var delta = pending*(1-exp(-dt*36))
+        pending -= delta
+        if !held {
+            let decay = exp(-dt*2.8)
+            if !reduced { delta += velocity*((1-decay)/2.8); delta.x += dt*0.12 }
+            velocity *= decay
+        }
+        let angle = simd_length(delta)
+        if angle > 0.000001 {
+            let axis = SIMD3(-delta.y,delta.x,0)/angle
+            orientation = simd_normalize(simd_quatd(angle:angle,axis:axis)*orientation)
+        }
+        if !reduced { clock += dt + angle*0.65 }
+        let matrix = simd_double3x3(orientation)
+        let radius = min(size.width,size.height)*0.345
+        let front = 1.5*cos(clock*0.83)
+        for dot in dots {
+            let v = matrix*dot.normal
+            let blend = reduced ? 0 : min(1,max(0,(dot.normal.x-front)*1.8))
+            let displacement = blend*blend*(3-2*blend)*0.09
+            let x = v.x + displacement*cos(dot.phase+clock*1.6)
+            let y = v.y + displacement*sin(dot.phase*2+clock*1.3)
+            dot.sprite.position = CGPoint(x:size.width/2+radius*x,y:size.height/2+radius*y)
+            dot.sprite.alpha = 0.22+0.68*(v.z+1)/2
         }
     }
 }
+
