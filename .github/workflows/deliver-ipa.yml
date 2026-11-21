@@ -1,0 +1,21 @@
+name: Deliver verified iPhone IPA
+on:
+  push:
+    branches: [amber-ipa-download]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Think-Amber-Sideloadly
+          run-id: 44889302149
+          github-token: ${{ github.token }}
+      - name: Transfer application package
+        run: |
+          unzip -tq Think.ipa
+          sha256sum Think.ipa
+          base64 -w 2048 Think.ipa | sed 's/^/IPA_DATA /'
