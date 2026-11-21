@@ -14,6 +14,7 @@ struct Idea: Codable, Identifiable {
     var step: String
     let created: Date
     var audio: String? = nil
+    var flower: Bool? = nil
     var award: Int
 }
 
@@ -34,7 +35,11 @@ struct Studio: View {
     @State private var showRewards = false
     @State private var editing: Idea?
     @State private var text = ""
-    @State private var step = ""
+    @State private var flower = false
+    @AppStorage("think.draft.flower") private var draftFlower = false
+    @AppStorage("think.dark") private var darkTheme = false
+    @State private var listRequest = 0
+    @State private var dismissRequest = 0
     @StateObject private var voice = Dictation()
     @State private var editorOrigin = Page.spark
     @State private var search = ""
@@ -43,11 +48,8 @@ struct Studio: View {
     @State private var calendarOpen = false
     @State private var detail: Idea?
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showStep = false
     @State private var storageError = false
-    @FocusState private var focus: Field?
     @Environment(\.accessibilityReduceMotion) private var reduced
-    enum Field { case thought, step }
     let accent = Paper.blue
     var body: some View {
         ZStack {
@@ -56,7 +58,8 @@ struct Studio: View {
             else { capture.transition(.opacity) }
         }
         .animation(reduced ? nil : .easeInOut(duration: 0.32), value: page)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(darkTheme ? .dark : .light)
+        .buttonStyle(InkButton())
         .fontDesign(.monospaced)
         .tint(Paper.blue)
         .onAppear {
@@ -87,34 +90,29 @@ struct Studio: View {
         editing = idea
         voice.cancel()
         text = idea?.text ?? draft
-        step = idea?.step ?? draftStep
-        showStep = !step.isEmpty
+        let legacy = idea?.step ?? draftStep
+        if !legacy.isEmpty { text = [text,legacy].filter { !$0.isEmpty }.joined(separator:"\n\n") }
+        if idea == nil { draft = text; draftStep = "" }
+        flower = idea?.flower ?? (idea == nil && draftFlower)
         page = .editor
     }
     private func save() {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let action = step.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return }
         voice.cancel()
         var next = book
-        var idea = editing ?? Idea(id: UUID(), text: words, step: action, created: Date(), award: 0)
-        let score = max(idea.award, 1 + (words.count >= 80 ? 1 : 0) + (action.isEmpty ? 0 : 1))
+        var idea = editing ?? Idea(id: UUID(), text: words, step: "", created: Date(), award: 0)
+        let score = max(idea.award, 1 + (words.count >= 80 ? 1 : 0) + (words.count >= 200 ? 1 : 0))
         next.balance += score - idea.award
-        idea.text = words; idea.step = action; idea.award = score
+        idea.text = words; idea.flower = flower; idea.step = ""; idea.award = score
         if let index = next.ideas.firstIndex(where: { $0.id == idea.id }) { next.ideas[index] = idea }
         else { next.ideas.insert(idea, at: 0) }
         guard persist(next) else { return }
-        if editing == nil { draft = ""; draftStep = "" }
-        focus = nil
+        if editing == nil { draft = ""; draftStep = ""; draftFlower = false }
+        dismissRequest += 1
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil }
         page = .collection
-    }
-    private var brand: some View {
-        HStack(spacing: 6) {
-            SparkShape().frame(width: 22, height: 22)
-            Text("think").font(.system(size:30,weight:.semibold,design:.default)).fontDesign(.default).tracking(-2)
-        }.accessibilityElement(children: .ignore).accessibilityLabel("think")
     }
     private var balance: some View {
         Button { showRewards = true } label: {
@@ -122,20 +120,27 @@ struct Studio: View {
                 SparkShape().frame(width: 13, height: 13)
                 Text("\(book.balance)").monospacedDigit()
             }.padding(.horizontal, 14).frame(minHeight: 44)
-             .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius:8))
+             
         }.accessibilityLabel("Мои звёзды, \(book.balance)")
     }
     private var capture: some View {
         VStack(spacing: 0) {
-            HStack { brand; Spacer(); balance }.padding(.horizontal, 24)
+            ZStack {
+                HStack {
+                    Button { darkTheme.toggle() } label: {
+                        Image(systemName:darkTheme ? "sun.max" : "moon").frame(width:40,height:42)
+                    }.accessibilityLabel(darkTheme ? "Светлая тема" : "Тёмная тема")
+                    Spacer(); balance
+                }
+                ThinkLetters().frame(width:102,height:32)
+            }.padding(.horizontal,24)
             Spacer(minLength: 8)
-            Flower().frame(width:37,height:54)
             VStack(spacing: 12) {
                 ParticleStar(cool: book.cool) {
                     UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                     begin()
                 }.aspectRatio(1.12, contentMode: .fit)
-                Button("Поймай мысль.") { begin() }
+                Text("Поймай мысль.")
                     .font(.system(.title,design:.monospaced)).foregroundStyle(Paper.blue)
                 Text("Крути шар пальцем. Коснись, чтобы записать.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -143,32 +148,43 @@ struct Studio: View {
             Spacer(minLength: 20)
             Button { detail = nil; search = ""; dayFilter = nil; page = .collection } label: {
                 Label("Идеи · \(book.ideas.count)", systemImage: "square.stack").font(.callout)
-                    .padding(.horizontal, 20).frame(minHeight: 48).background(.black.opacity(0.055), in: RoundedRectangle(cornerRadius:8))
+                    .padding(.horizontal, 20).frame(minHeight: 48)
             }.padding(.bottom, 12)
-        }.buttonStyle(.plain).foregroundStyle(Paper.ink)
+        }.buttonStyle(InkButton()).foregroundStyle(Paper.ink)
          .background(Paper.sheet.ignoresSafeArea())
     }
     private var editor: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Button { voice.cancel(); focus = nil; page = editorOrigin } label: {
+                Button { voice.cancel(); dismissRequest += 1; page = editorOrigin } label: {
                     Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }.accessibilityLabel("Назад")
                 Spacer()
                 Text(editing == nil ? "Новая мысль" : "Редактирование").font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
-                SparkShape().fill(accent).frame(width: 16, height: 16).padding(.horizontal, 14)
+                Button("Сохранить",action:save).font(.subheadline).padding(.vertical,3)
+                    .frame(minHeight:44).foregroundStyle(Paper.blue)
+                    .disabled(voice.waiting || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
             }
+            if flower { Flower().frame(width:42,height:58).frame(maxWidth:.infinity) }
             ZStack(alignment: .topLeading) {
                 if text.isEmpty { Text(voice.listening ? "Слушаю…" : "О чём ты думаешь?").foregroundStyle(.secondary).padding(.top,8).padding(.leading,5).allowsHitTesting(false) }
-                TextEditor(text:$text).scrollContentBackground(.hidden).focused($focus,equals:.thought)
-                    .accessibilityLabel("Текст идеи")
+                IdeaTextView(text:$text,listRequest:listRequest,dismissRequest:dismissRequest) { voice.cancel() }
             }.font(.system(.title2,design:.monospaced))
              .onChange(of:text) { _,value in if editing == nil { draft = value } }
-             .onChange(of:focus) { _,field in if field != nil { voice.cancel() } }
+            HStack(spacing:12) {
+                Button { voice.cancel(); listRequest += 1 } label: {
+                    Image(systemName:"list.number").frame(width:40,height:44)
+                }.accessibilityLabel("Нумерованный список")
+                Button {
+                    flower.toggle()
+                    if editing == nil { draftFlower = flower }
+                } label: { Flower().frame(width:22,height:32).frame(width:40,height:44).opacity(flower ? 1 : 0.65) }
+                .accessibilityLabel(flower ? "Убрать цветок" : "Добавить цветок")
+                Spacer()
             GlassMic(active:voice.listening,waiting:voice.waiting) {
                 if voice.listening { voice.finish(); return }
-                focus = nil
+                dismissRequest += 1
                 let prefix = text
                 Task {
                     await voice.start { words in
@@ -176,19 +192,7 @@ struct Studio: View {
                         if editing == nil { draft = text }
                     }
                 }
-            }.frame(maxWidth:.infinity)
-            if showStep && !voice.listening {
-                TextField("Что можно сделать первым?", text: $step, axis: .vertical)
-                    .lineLimit(1...3).focused($focus, equals: .step).padding(12)
-                    .background(.black.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-                    .onChange(of: step) { _, value in if editing == nil { draftStep = value } }
             }
-            HStack {
-                if !showStep { Button("＋ Первый шаг") { showStep = true; focus = .step }.font(.subheadline) }
-                Spacer()
-                Button("Сохранить", action: save).font(.headline).foregroundStyle(.white)
-                    .padding(.horizontal, 19).frame(minHeight: 46).background(accent, in: RoundedRectangle(cornerRadius:8))
-                    .disabled(voice.waiting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(Paper.ink)
          .background(Paper.sheet.ignoresSafeArea())
@@ -220,17 +224,18 @@ struct Studio: View {
                 Text("Идея").font(.custom("Menlo-Bold",size:34,relativeTo:.largeTitle))
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        if idea.flower == true { Flower().frame(width:42,height:58).frame(maxWidth:.infinity) }
                         Text("Дата создания").font(.caption).foregroundStyle(Paper.blue)
                         Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.custom("Menlo-Regular",size:15,relativeTo:.subheadline))
                         Divider()
                         Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
                             .font(.custom("Menlo-Regular",size:21,relativeTo:.title3)).textSelection(.enabled)
-                        if !idea.step.isEmpty { Text("Первый шаг").font(.custom("Menlo-Regular",size:17,relativeTo:.headline)); Text(idea.step) }
+                        if !idea.step.isEmpty { Text(idea.step) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
                      .foregroundStyle(Paper.ink).background(Paper.card,in:RoundedRectangle(cornerRadius:8))
                 }
                 Button { begin(idea) } label: { Label("Редактировать",systemImage:"pencil").frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(.white).background(Paper.blue,in:RoundedRectangle(cornerRadius:8))
+                    .foregroundStyle(Paper.blue)
             } else {
                 HStack {
                     Text("Идеи").font(.custom("Menlo-Bold",size:34,relativeTo:.largeTitle))
@@ -269,26 +274,27 @@ struct Studio: View {
                                     HStack(spacing:12) {
                                         VStack(alignment:.leading,spacing:8) {
                                             HStack {
+                                                if idea.flower == true { Flower().frame(width:13,height:19) }
                                                 Image(systemName:idea.audio == nil ? "text.alignleft" : "waveform")
                                                 Text(idea.audio == nil ? "Текст" : "Голос")
                                                 Text("·")
                                                 Text(idea.created,style:.time)
-                                            }.font(.custom("Menlo-Regular",size:12,relativeTo:.caption)).foregroundStyle(Color(white:0.32))
+                                            }.font(.custom("Menlo-Regular",size:12,relativeTo:.caption)).foregroundStyle(Paper.ink.opacity(0.7))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
                                                 .font(.custom("Menlo-Regular",size:21,relativeTo:.title3)).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
                                         Image(systemName:"chevron.right").foregroundStyle(Paper.blue)
                                     }.multilineTextAlignment(.leading).padding(16).foregroundStyle(Paper.ink)
-                                     .background(Paper.card,in:RoundedRectangle(cornerRadius:8))
+                                     
                                 }
                             }
                         }
                     }
                 }.scrollDismissesKeyboard(.interactively)
                 Button { begin() } label: { Label("Новая идея",systemImage:"plus").font(.custom("Menlo-Regular",size:17,relativeTo:.headline)).frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(.white).background(Paper.blue,in:RoundedRectangle(cornerRadius:8))
+                    .foregroundStyle(Paper.blue)
             }
-        }.font(.custom("Menlo-Regular",size:17,relativeTo:.body)).buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
+        }.font(.custom("Menlo-Regular",size:17,relativeTo:.body)).buttonStyle(InkButton()).padding(.horizontal,22).padding(.bottom,8)
          .foregroundStyle(Paper.ink).background(Paper.sheet.ignoresSafeArea())
          .environment(\.locale,Locale(identifier:"ru"))
          .sheet(isPresented:$calendarOpen) {
@@ -299,7 +305,7 @@ struct Studio: View {
                      Button("Все даты") { dayFilter = nil; calendarOpen = false }
                      Spacer()
                      Button("Показать идеи") { dayFilter = calendarDay; calendarOpen = false }
-                         .buttonStyle(.borderedProminent)
+                         .buttonStyle(InkButton())
                  }
              }.padding(20).tint(Paper.blue).fontDesign(.monospaced)
               .environment(\.locale,Locale(identifier:"ru")).presentationBackground(Paper.sheet)
@@ -311,7 +317,7 @@ struct Studio: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Мои звёзды").font(.largeTitle.bold())
                 HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit()) }
-                Text("Одна звезда за мысль, ещё одна за описание от 80 символов и одна за первый шаг. Дополняй запись позже — звёзды сохранятся.").foregroundStyle(.secondary)
+                Text("Одна звезда за мысль, ещё одна за описание от 80 символов и одна за текст от 200 символов. Дополняй запись позже — звёзды сохранятся.").foregroundStyle(.secondary)
                 Divider()
                 Label("Лунный жёлтый", systemImage: "moon.stars").font(.headline)
                 Text("Тёплый жёлтый оттенок для частиц шара.").foregroundStyle(.secondary)
@@ -319,7 +325,7 @@ struct Studio: View {
                     var next = book
                     if !next.lunar { guard next.balance >= 5 else { return }; next.balance -= 5; next.lunar = true }
                     next.cool.toggle(); _ = persist(next)
-                }.buttonStyle(.borderedProminent).tint(Paper.blue).disabled(!book.lunar && book.balance < 5)
+                }.buttonStyle(InkButton()).tint(Paper.blue).disabled(!book.lunar && book.balance < 5)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(26)
         }.padding(.top, 15).fontDesign(.monospaced).presentationBackground(Paper.sheet)
     }
@@ -337,9 +343,11 @@ final class Dictation: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var generation = UUID()
+    private var phrases = SpeechPhrases()
 
     func start(update: @escaping (String) -> Void) async {
         cancel()
+        phrases = SpeechPhrases()
         let token = generation
         waiting = true
         let microphone = await AVAudioApplication.requestRecordPermission()
@@ -370,13 +378,21 @@ final class Dictation: ObservableObject {
             listening = true
             task = recognizer.recognitionTask(with:buffer) { [weak self] result, failure in
                 let words = result?.bestTranscription.formattedString
+                let segments = result?.bestTranscription.segments ?? []
+                let from = segments.first?.timestamp ?? 0
+                let until = segments.last.map { $0.timestamp+$0.duration } ?? from
                 let final = result?.isFinal == true
                 Task { @MainActor in
                     guard let self, self.generation == token else { return }
-                    if let words, !words.isEmpty { update(words) }
+                    if let words, !words.isEmpty {
+                        update(self.phrases.receive(words,start:from,end:until,at:ProcessInfo.processInfo.systemUptime))
+                    }
                     if final || failure != nil {
                         if self.listening && failure != nil && words == nil { self.error = "Диктовка прервалась. Нажми микрофон, чтобы продолжить." }
-                        self.cancel()
+                        if final && self.listening && failure == nil {
+                            let committed = self.phrases.value
+                            await self.start { next in update([committed,next].filter { !$0.isEmpty }.joined(separator:" ")) }
+                        } else { self.cancel() }
                     }
                 }
             }
@@ -412,16 +428,141 @@ struct GlassMic: View {
         Button(action:action) {
             Image(systemName:"mic.fill")
                 .font(.system(size:25,weight:.medium))
-                .foregroundStyle(active ? Color.white : Paper.blue)
-                .frame(width:66,height:66)
-                .background {
-                    Circle().fill(active ? Paper.blue : Paper.card)
-                        .overlay { Circle().fill(.linearGradient(colors:[.white.opacity(0.35),.clear,.black.opacity(0.06)],startPoint:.topLeading,endPoint:.bottomTrailing)) }
-                        .overlay { Circle().strokeBorder(.linearGradient(colors:[.white,Paper.blue.opacity(0.32)],startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:1.2) }
-                        .shadow(color:Paper.blue.opacity(active ? 0.28 : 0.12),radius:active ? 9 : 4,y:2)
-                }.contentShape(Circle())
+                .foregroundStyle(active ? Paper.blue : Paper.ink)
+                .frame(width:60,height:60)
+                .overlay { Circle().strokeBorder(active ? Paper.blue : Paper.ink.opacity(0.45),lineWidth:active ? 2 : 1) }
+                .contentShape(Circle())
         }.buttonStyle(.plain).disabled(waiting)
          .accessibilityLabel(active ? "Остановить диктовку" : "Начать диктовку")
+    }
+}
+
+
+import SwiftUI
+import UIKit
+
+struct IdeaTextView: UIViewRepresentable {
+    @Binding var text: String
+    let listRequest: Int
+    let dismissRequest: Int
+    let beginTyping: () -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> UITextView {
+        let v = UITextView()
+        v.backgroundColor = .clear
+        v.delegate = context.coordinator
+        v.adjustsFontForContentSizeCategory = true
+        v.font = UIFontMetrics(forTextStyle:.title2).scaledFont(for:UIFont.monospacedSystemFont(ofSize:21, weight:.regular))
+        v.textContainerInset = UIEdgeInsets(top:8,left:0,bottom:8,right:0)
+        v.accessibilityLabel = "Текст идеи"
+        v.text = text
+        return v
+    }
+    func updateUIView(_ v: UITextView,context:Context) {
+        let c = context.coordinator
+        c.parent = self
+        v.textColor = UIColor(Paper.ink)
+        v.tintColor = UIColor(Paper.blue)
+        if v.text != text { v.text = text }
+        if c.dismissID != dismissRequest {
+            c.dismissID = dismissRequest; v.resignFirstResponder()
+        }
+        if c.listID != listRequest {
+            c.listID = listRequest
+            DispatchQueue.main.async {
+                v.becomeFirstResponder()
+                let str = v.text as NSString
+                let line = str.lineRange(for:NSRange(location:v.selectedRange.location,length:0))
+                let start = NSRange(location:line.location,length:0)
+                if str.substring(with:line).range(of:"^[0-9]+\\. ",options:.regularExpression) == nil {
+                    let selection = v.selectedRange
+                    v.textStorage.replaceCharacters(in:start,with:"1. ")
+                    v.selectedRange = NSRange(location:selection.location+3,length:selection.length)
+                    c.textViewDidChange(v)
+                }
+            }
+        }
+    }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: IdeaTextView
+        var listID: Int
+        var dismissID: Int
+        init(_ p: IdeaTextView) { parent = p; listID = p.listRequest; dismissID = p.dismissRequest }
+        func textViewDidBeginEditing(_ textView: UITextView) { parent.beginTyping() }
+        func textViewDidChange(_ v: UITextView) { parent.text = v.text }
+        func textView(_ v: UITextView,shouldChangeTextIn range:NSRange,replacementText replacement:String) -> Bool {
+            guard replacement == "\n" else { return true }
+            let str = v.text as NSString
+            let line = str.lineRange(for:NSRange(location:range.location,length:0))
+            let before = str.substring(with:NSRange(location:line.location,length:range.location-line.location))
+            guard let marker = before.range(of:"^[0-9]{1,8}\\. ",options:.regularExpression),
+                  let n = Int(before[marker].dropLast(2)) else { return true }
+            var target = range
+            var next = "\n\(n+1). "
+            let rest = str.substring(with:line).dropFirst(before[marker].count)
+            if rest.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
+                target = NSRange(location:line.location,length:NSMaxRange(range)-line.location)
+                next = ""
+            }
+            v.textStorage.replaceCharacters(in:target,with:next)
+            v.selectedRange = NSRange(location:target.location+(next as NSString).length,length:0)
+            textViewDidChange(v)
+            return false
+        }
+    }
+}
+
+struct ThinkLetters: View {
+    var body: some View {
+        Canvas { c,size in
+            c.scaleBy(x:size.width/115,y:size.height/35)
+            var p = Path()
+            func line(_ a:CGPoint,_ b:CGPoint) { p.move(to:a); p.addLine(to:b) }
+            line(CGPoint(x:7,y:5),CGPoint(x:7,y:24))
+            p.addQuadCurve(to:CGPoint(x:18,y:29),control:CGPoint(x:7,y:33))
+            line(CGPoint(x:1,y:14),CGPoint(x:18,y:14))
+            line(CGPoint(x:24,y:2),CGPoint(x:24,y:32))
+            p.move(to:CGPoint(x:24,y:24));p.addQuadCurve(to:CGPoint(x:43,y:22),control:CGPoint(x:42,y:2))
+            p.addLine(to:CGPoint(x:43,y:32))
+            line(CGPoint(x:53,y:13),CGPoint(x:53,y:32))
+            line(CGPoint(x:64,y:13),CGPoint(x:64,y:32))
+            p.move(to:CGPoint(x:64,y:24));p.addQuadCurve(to:CGPoint(x:84,y:22),control:CGPoint(x:83,y:2))
+            p.addLine(to:CGPoint(x:84,y:32))
+            line(CGPoint(x:95,y:2),CGPoint(x:95,y:32))
+            line(CGPoint(x:96,y:24),CGPoint(x:112,y:13))
+            line(CGPoint(x:102,y:20),CGPoint(x:113,y:32))
+            c.stroke(p,with:.color(Paper.ink),style:StrokeStyle(lineWidth:4.6,lineCap:.butt,lineJoin:.round))
+            c.fill(Path(ellipseIn:CGRect(x:50.2,y:3.2,width:5.6,height:5.6)),with:.color(Paper.ink))
+        }.accessibilityLabel("think")
+    }
+}
+
+struct InkButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.padding(.horizontal,5)
+            .contentShape(RoundedRectangle(cornerRadius:8))
+            .overlay { RoundedRectangle(cornerRadius:8).strokeBorder(Paper.ink.opacity(configuration.isPressed ? 0.8 : 0.30),lineWidth:1).allowsHitTesting(false) }
+            .opacity(configuration.isPressed ? 0.65 : 1)
+    }
+}
+
+// Some recognizers restart their partial transcript after a quiet interval.
+struct SpeechPhrases {
+    private var frozen = ""
+    private var current = ""
+    var value: String { [frozen,current].filter { !$0.isEmpty }.joined(separator:" ") }
+    private var firstTime: Double?
+    private var previousEnd = 0.0
+    private var lastEvent: Double?
+    mutating func receive(_ words: String, start: Double, end: Double, at now: Double) -> String {
+        let sameBeginning = words.lowercased().split(separator:" ").first == current.lowercased().split(separator:" ").first
+        let shifted = start >= previousEnd - 0.04 && start > (firstTime ?? start)+0.18
+        let resumed = now - (lastEvent ?? now) > 1.0 && !sameBeginning
+        if !current.isEmpty && (shifted || resumed) && !words.lowercased().hasPrefix(current.lowercased()) {
+            frozen = [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
+        }
+        current = words; firstTime = start; previousEnd = end; lastEvent = now
+        return [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
     }
 }
 

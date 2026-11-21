@@ -22,10 +22,13 @@ struct SparkShape: Shape {
 import simd
 
 enum Paper {
-    static let sheet = Color(white: 0.875)
-    static let ink = Color(white: 0.085)
-    static let blue = Color(red:0.16,green:0.095,blue:0.72)
-    static let card = Color(white:0.93)
+    private static func inkColor(_ light: UIColor,_ dark: UIColor) -> Color {
+        Color(uiColor:UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
+    static let sheet = inkColor(UIColor(white:0.875,alpha:1),UIColor(white:0.075,alpha:1))
+    static let ink = inkColor(UIColor(white:0.085,alpha:1),UIColor(white:0.94,alpha:1))
+    static let blue = inkColor(UIColor(red:0.16,green:0.095,blue:0.72,alpha:1),UIColor(red:0.68,green:0.65,blue:1,alpha:1))
+    static let card = inkColor(UIColor(white:0.93,alpha:1),UIColor(white:0.14,alpha:1))
 }
 
 struct Flower: View {

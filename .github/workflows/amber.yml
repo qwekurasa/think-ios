@@ -11,6 +11,19 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Check corrections and pauses in dictated phrases
+        run: |
+          printf 'import Foundation\n' > "$RUNNER_TEMP/dictation.swift"
+          sed -n '/^struct SpeechPhrases {/,/^}/p' Think/ThinkApp.swift >> "$RUNNER_TEMP/dictation.swift"
+          cat >> "$RUNNER_TEMP/dictation.swift" <<'SWIFT'
+          var p = SpeechPhrases()
+          precondition(p.receive("Поймать",start:0,end:0.4,at:0) == "Поймать")
+          precondition(p.receive("Поймать мысль",start:0,end:0.9,at:0.4) == "Поймать мысль")
+          precondition(p.receive("и записать",start:2,end:3,at:3) == "Поймать мысль и записать")
+          precondition(p.receive("и записать её",start:2,end:3.5,at:3.3) == "Поймать мысль и записать её")
+          precondition(p.receive("Проверить",start:0,end:0.5,at:6) == "Поймать мысль и записать её Проверить")
+          SWIFT
+          swift "$RUNNER_TEMP/dictation.swift"
       - name: Build for iPhone
         run: |
           xcodebuild -project Think.xcodeproj -target Think -configuration Release -sdk iphoneos ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/iphone" build
