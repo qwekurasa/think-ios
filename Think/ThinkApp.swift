@@ -503,8 +503,7 @@ struct Studio: View {
                         }
                     }
                 }.scrollDismissesKeyboard(.interactively)
-                Button { begin() } label: { Label("Новая идея",systemImage:"plus").font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:48) }
-                    .buttonStyle(JournalPrimary())
+
             }
         }.buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
          .foregroundStyle(palette.ink).background(palette.sheet.ignoresSafeArea())
@@ -857,81 +856,18 @@ struct JournalCover: Codable, Equatable {
     static let names = ["Графит", "Бордо", "Шалфей", "Индиго", "Песок"]
 }
 
-struct NotebookObject: View {
-    let cover: JournalCover
-    @Environment(\.accessibilityReduceMotion) private var reduced
-    @State private var angle = -20.0
-    @State private var pitch = 9.0
-    @State private var pan: CGSize = .zero
-    private var yaw: Double { angle + Double(pan.width) * 0.64 }
-    private var tilt: Double { min(42,max(-42,pitch - Double(pan.height)*0.2)) }
-    private var back: Bool { cos(yaw * .pi / 180) < 0 }
-
-    var body: some View {
-        ZStack {
-            Rectangle().fill(Color(white:0.15)).frame(width:182,height:258).offset(x:10,y:5)
-            RoundedRectangle(cornerRadius:4).fill(Color(white:0.78)).frame(width:180,height:251).offset(x:9,y:4)
-                .overlay {
-                    Canvas { context, size in
-                        var lines = Path()
-                        for n in 0..<39 {
-                            let y = 8 + Double(n)*6.4
-                            lines.move(to:CGPoint(x:size.width-8,y:y))
-                            lines.addLine(to:CGPoint(x:size.width+9,y:y))
-                        }
-                        context.stroke(lines,with:.color(.black.opacity(0.25)),lineWidth:0.5)
-                    }.frame(width:182,height:258).allowsHitTesting(false)
-                }
-            NotebookFace(cover:cover,back:back)
-                .rotation3DEffect(.degrees(back ? 180 : 0),axis:(x:0,y:1,z:0))
-        }
-        .rotation3DEffect(.degrees(tilt),axis:(x:1,y:0,z:0),perspective:0)
-        .rotation3DEffect(.degrees(yaw),axis:(x:0,y:1,z:0),perspective:0.58)
-        .scaleEffect(1 + 0.025 * abs(sin(yaw * .pi/180)))
-        .frame(width:236,height:280)
-        .contentShape(Rectangle())
-        .gesture(DragGesture().onChanged { pan = $0.translation }.onEnded { value in
-            angle = yaw.truncatingRemainder(dividingBy:360)
-            pitch = tilt
-            pan = .zero
-            if !reduced {
-                withAnimation(.spring(response:0.54,dampingFraction:0.82)) {
-                    let momentum = value.predictedEndTranslation.width-value.translation.width
-                    angle += min(95,max(-95,Double(momentum)*0.3))
-                    pitch *= 0.7
-                }
-            }
-        })
-        .accessibilityLabel(cover.title.isEmpty ? "Обложка дневника" : cover.title)
-        .accessibilityAction(named:Text("Повернуть блокнот")) { angle += 45 }
-    }
-
-}
-
 struct NotebookFace: View {
     let cover: JournalCover
-    let back: Bool
     @Environment(\.appPalette) private var palette
     var body: some View {
         ZStack(alignment:.leading) {
             JournalCover.colors[cover.shade]
-            if !back, let data = cover.photo, let photo = UIImage(data:data) {
+            if let data = cover.photo, let photo = UIImage(data:data) {
                 Image(uiImage:photo).resizable().scaledToFill().frame(width:182,height:258).clipped()
             }
-            LinearGradient(colors:[.white.opacity(0.24),.clear,.black.opacity(0.28)],startPoint:.topLeading,endPoint:.bottomTrailing)
-            Canvas { context, size in
-                var light = Path(), dark = Path()
-                for index in 0..<2300 {
-                    let x = Double((index*151 + index*index*11)%4093)/4093*size.width
-                    let y = Double((index*379 + index*index*7)%4099)/4099*size.height
-                    let bounds = CGRect(x:x,y:y,width:1.2+Double(index%3)*0.45,height:0.48)
-                    if index.isMultiple(of:2) { light.addRect(bounds) } else { dark.addRect(bounds) }
-                }
-                context.fill(light,with:.color(.white.opacity(0.20)))
-                context.fill(dark,with:.color(.black.opacity(0.31)))
-            }
-            Rectangle().fill(.linearGradient(colors:[.black.opacity(0.42),.white.opacity(0.15),.black.opacity(0.24),.clear],startPoint:.leading,endPoint:.trailing)).frame(width:17)
-            if !back && !cover.title.isEmpty {
+            LinearGradient(colors:[.white.opacity(0.09),.clear,.black.opacity(0.13)],
+                           startPoint:.topLeading,endPoint:.bottomTrailing)
+            if !cover.title.isEmpty {
                 Text(cover.title).font(.system(size:23,weight:.semibold))
                     .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).foregroundStyle(palette.ink)
                     .shadow(color:.black.opacity(0.78),radius:3,y:1)
@@ -982,7 +918,6 @@ struct JournalSetup: View {
                 .scaleEffect(typing ? 0.53 : leaving && !reduced ? 1.19 : 1)
                 .frame(height:typing ? 150 : 280)
                 .animation(reduced ? nil : .easeInOut(duration:0.24),value:typing)
-                .simultaneousGesture(TapGesture().onEnded { if stage == .intro { change(.title) } })
             Spacer(minLength:4)
             controls
         }.padding(.bottom,16).foregroundStyle(palette.ink)
@@ -990,12 +925,9 @@ struct JournalSetup: View {
          .buttonStyle(.plain).preferredColorScheme(.dark)
     }
 
-    @ViewBuilder private var journalPreview: some View {
-        if stage == .cover || existing != nil {
-            JournalModel(cover:cover,onTap:nil).frame(width:236,height:280)
-        } else {
-            NotebookObject(cover:cover)
-        }
+    private var journalPreview: some View {
+        JournalModel(cover:cover,onTap:stage == .intro ? { change(.title) } : nil)
+            .frame(width:236,height:280)
     }
 
     private var header: some View {
@@ -1465,9 +1397,9 @@ struct JournalModel: UIViewRepresentable {
         controller.artwork = cover
         controller.colors = palette
         let cloth = UIColor(JournalCover.colors[cover.shade])
-        let renderer = ImageRenderer(content:NotebookFace(cover:cover,back:false).environment(\.appPalette,palette))
+        let renderer = ImageRenderer(content:NotebookFace(cover:cover).environment(\.appPalette,palette))
         renderer.scale = 2.5
-        controller.rebuild(front:renderer.uiImage,cloth:cloth)
+        controller.rebuild(front:renderer.uiImage,cloth:cloth,hasPhoto:cover.photo != nil)
     }
 
     final class AccessibleBookView: SCNView {
@@ -1479,7 +1411,7 @@ struct JournalModel: UIViewRepresentable {
         let book = SCNNode()
         private let tilt = SCNNode()
         private var start = CGPoint.zero
-        private var yaw: Float = -0.34
+        private var yaw: Float = -0.43
         private var pitch: Float = 0.13
         var artwork: JournalCover?
         var colors: AppPalette?
@@ -1493,11 +1425,11 @@ struct JournalModel: UIViewRepresentable {
             book.addChildNode(tilt)
         }
 
-        func rebuild(front:UIImage?, cloth:UIColor) {
+        func rebuild(front:UIImage?, cloth:UIColor, hasPhoto:Bool) {
             tilt.childNodes.forEach { $0.removeFromParentNode() }
             if !JournalMesh.parts.isEmpty {
                 let colors: [UIColor] = [cloth,cloth,UIColor(white:0.57,alpha:1),
-                                        UIColor(white:0.79,alpha:1),UIColor(white:0.16,alpha:1),cloth]
+                                        UIColor(white:0.79,alpha:1),UIColor(white:0.16,alpha:1)]
                 for part in JournalMesh.parts {
                     let material = SCNMaterial()
                     material.lightingModel = .physicallyBased
@@ -1506,7 +1438,7 @@ struct JournalModel: UIViewRepresentable {
                     material.roughness.contents = part.kind <= 1 ? 0.76 : 0.89
                     if part.kind <= 1 {
                         material.normal.contents = UIImage(named:"JournalGrain")
-                        material.normal.intensity = 0.16
+                        material.normal.intensity = part.kind == 0 && hasPhoto ? 0.035 : 0.08
                     }
                     let geometry = part.makeGeometry()
                     geometry.materials = [material]
@@ -1604,10 +1536,10 @@ private struct JournalMesh {
             cursor += 4
             return Int(UInt32(littleEndian:value))
         }
-        guard read() == 6 else { return [] }
+        guard let materialCount = read(), materialCount == 5 else { return [] }
         var result = [Self]()
-        for _ in 0..<6 {
-            guard let kind = read(), (0...5).contains(kind),
+        for _ in 0..<materialCount {
+            guard let kind = read(), (0..<materialCount).contains(kind),
                   let count = read(), let indices = read(), count > 0, indices > 0,
                   indices.isMultiple(of:3) else { return [] }
             let boundary = cursor+count*32
