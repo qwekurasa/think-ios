@@ -105,6 +105,7 @@ struct Studio: View {
     @State private var detail: Idea?
     @Environment(\.scenePhase) private var scenePhase
     @State private var storageError = false
+    @State private var notebookLoaded = false
     @Environment(\.accessibilityReduceMotion) private var reduced
     var accent: Color { palette.accent }
     var body: some View {
@@ -135,6 +136,7 @@ struct Studio: View {
                 do { book = try JSONDecoder().decode(Notebook.self,from:data) }
                 catch { storageError = true; return }
             }
+            notebookLoaded = true
             noteVisit()
         }
         .alert("Не удалось прочитать коллекцию",isPresented:$storageError) {
@@ -144,7 +146,7 @@ struct Studio: View {
             if phase == .active { noteVisit() }
             if phase == .background {
                 voice.cancel()
-                if cover != nil && !storageError && book.lastSeen != nil {
+                if cover != nil && notebookLoaded && !storageError && book.lastSeen != nil {
                     var next = book
                     next.lastSeen = Date()
                     _ = persist(next)
@@ -168,7 +170,7 @@ struct Studio: View {
         return true
     }
     private func noteVisit() {
-        guard cover != nil, !storageError else { return }
+        guard cover != nil, notebookLoaded, !storageError else { return }
         var next = book
         next.resume(at:Date())
         _ = persist(next)
@@ -182,7 +184,7 @@ struct Studio: View {
         UserDefaults.standard.removeObject(forKey:"think.draft.audio")
         let voiceDirectory = URL.applicationSupportDirectory.appending(path:"ThinkVoice",directoryHint:.isDirectory)
         try? FileManager.default.removeItem(at:voiceDirectory)
-        book = Notebook(); cover = nil; page = .spark; editingCover = false
+        book = Notebook(); cover = nil; page = .spark; editingCover = false; storageError = false
         editing = nil; detail = nil; text = ""; bloom = nil
         search = ""; dayFilter = nil; yearFilter = nil; section = .active
     }
