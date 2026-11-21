@@ -45,6 +45,9 @@ struct Studio: View {
     @StateObject private var voice = VoiceMemo()
     @AppStorage("think.draft.audio") private var draftAudio = ""
     @State private var voiceMode = false
+    @State private var opened = false
+    @State private var selectedDay = Calendar.current.startOfDay(for: Date())
+    @State private var transcriptPrefix = ""
     @State private var detail: Idea?
     @Environment(\.scenePhase) private var scenePhase
     @State private var showStep = false
@@ -61,7 +64,7 @@ struct Studio: View {
             else { capture.transition(.opacity) }
         }
         .animation(reduced ? nil : .easeInOut(duration: 0.32), value: page)
-        .preferredColorScheme(page == .collection ? .light : .dark)
+        .preferredColorScheme(.dark)
         .onAppear {
             guard !data.isEmpty else { return }
             do { book = try JSONDecoder().decode(Notebook.self, from: data) }
@@ -105,7 +108,7 @@ struct Studio: View {
     private func save() {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let action = step.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (!words.isEmpty || voice.clip != nil), (words + "\n\n" + action).utf8.count <= 1800 else { return }
+        guard !words.isEmpty || voice.clip != nil else { return }
         voice.stop()
         var next = book
         var idea = editing ?? Idea(id: UUID(), text: words, step: action, created: Date(), award: 0)
@@ -118,6 +121,8 @@ struct Studio: View {
         if editing == nil { draft = ""; draftStep = ""; draftAudio = "" }
         focus = nil
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        selectedDay = Calendar.current.startOfDay(for: idea.created)
+        opened = true
         page = .collection
     }
     private var brand: some View {
@@ -150,7 +155,7 @@ struct Studio: View {
                 }.frame(maxWidth: .infinity).contentShape(Rectangle())
             }.accessibilityLabel("Записать идею")
             Spacer(minLength: 20)
-            Button { page = .collection } label: {
+            Button { opened = false; detail = nil; selectedDay = days.first ?? Calendar.current.startOfDay(for: Date()); page = .collection } label: {
                 Label("Дневник · \(book.ideas.count)", systemImage: "square.stack").font(.callout)
                     .padding(.horizontal, 20).frame(minHeight: 48).background(.white.opacity(0.07), in: Capsule())
             }.padding(.bottom, 12)
@@ -175,28 +180,49 @@ struct Studio: View {
              .onChange(of: voiceMode) { _, value in
                  if value { focus = nil } else { voice.stop(); focus = .thought }
              }
-            if voiceMode { RecorderPanel(voice: voice, tint: accent) }
+            if voiceMode && voice.recording {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(text.isEmpty ? "Слушаю…" : text).font(.system(.largeTitle, weight: .medium)).tracking(-1.2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Color.clear.frame(height: 1).id("end")
+                        }
+                    }.mask(LinearGradient(stops: [.init(color: .white.opacity(0.4), location: 0), .init(color: .white, location: 0.19), .init(color: .white, location: 0.97), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+                     .onChange(of: text) { _, _ in withAnimation(reduced ? nil : .easeOut(duration: 0.22)) { proxy.scrollTo("end",anchor: .bottom) } }
+                }
+            } else {
             ZStack(alignment: .topLeading) {
                 if text.isEmpty { Text(voiceMode ? "Подпись к записи…" : "О чём ты думаешь?").foregroundStyle(.white.opacity(0.42)).padding(.top, 8).padding(.leading, 5) }
                 TextEditor(text: $text).scrollContentBackground(.hidden).focused($focus, equals: .thought)
                     .accessibilityLabel("Текст идеи").onChange(of: text) { _, value in if editing == nil { draft = value } }
             }.font(.system(.title, design: .default, weight: .medium)).tracking(-0.8)
-            if showStep {
+            }
+            if voiceMode {
+                RecorderPanel(voice: voice, tint: Color(red: 0.55, green: 0.63, blue: 1))
+                    .onChange(of: voice.recording) { _, active in if active { transcriptPrefix = text } }
+                    .onChange(of: voice.transcript) { _, words in
+                        guard voice.recording, !words.isEmpty else { return }
+                        text = [transcriptPrefix, words].filter { !$0.isEmpty }.joined(separator: " ")
+                        if editing == nil { draft = text }
+                    }
+            }
+            if showStep && !voice.recording {
                 TextField("Что можно сделать первым?", text: $step, axis: .vertical)
                     .lineLimit(1...3).focused($focus, equals: .step).padding(12)
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
                     .onChange(of: step) { _, value in if editing == nil { draftStep = value } }
             }
-            if (text + "\n\n" + step).utf8.count > 1800 { Text("Сократи текст, чтобы идея поместилась в QR-код.").font(.footnote).foregroundStyle(accent) }
+            if (text + "\n\n" + step).utf8.count > 1800 { Text("Эту запись можно отправить обычным текстом.").font(.footnote).foregroundStyle(accent) }
             HStack {
                 if !showStep { Button("＋ Первый шаг") { showStep = true; focus = .step }.font(.subheadline) }
                 Spacer()
                 Button("Сохранить", action: save).font(.headline).foregroundStyle(.black)
                     .padding(.horizontal, 19).frame(minHeight: 46).background(accent, in: Capsule())
-                    .disabled(voice.waiting || (voice.clip == nil && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (text + "\n\n" + step).utf8.count > 1800)
+                    .disabled(voice.waiting || (voice.clip == nil && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
             }
         }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(.white)
-         .background(ZStack { ink; RoundedRectangle(cornerRadius: 46).stroke(.indigo.opacity(0.55), lineWidth: 9).blur(radius: 14) }.ignoresSafeArea())
+         .background(ZStack { (voiceMode ? Color(red:0.085,green:0.105,blue:0.15) : ink); RoundedRectangle(cornerRadius: 46).stroke(.indigo.opacity(0.55), lineWidth: 9).blur(radius: 14) }.ignoresSafeArea())
          .task { try? await Task.sleep(for: .milliseconds(300)); if !Task.isCancelled && !voiceMode { focus = .thought } }
     }
     private var grouped: [Date: [Idea]] { Dictionary(grouping: book.ideas) { Calendar.current.startOfDay(for: $0.created) } }
@@ -204,46 +230,76 @@ struct Studio: View {
     private var archive: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack { Button { voice.stop(); detail = nil; page = .spark } label: { brand }.accessibilityLabel("Главная"); Spacer(); balance }
-            if let idea = detail {
-                Button { voice.stop(); detail = nil } label: { Label("Все записи", systemImage: "chevron.left") }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text(idea.created, format: .dateTime.day().month(.wide).year()).foregroundStyle(.secondary)
-                        Text(idea.text.isEmpty ? "Голосовая мысль" : idea.text).font(.system(.title, design: .serif)).textSelection(.enabled)
-                        if let name = idea.audio {
-                            Button { voice.play() } label: { Label(voice.playing ? "Остановить" : "Слушать запись", systemImage: voice.playing ? "stop.circle" : "play.circle") }
-                            ShareLink(item: VoiceMemo.url(name)) { Label("Отправить аудио", systemImage: "square.and.arrow.up") }
-                        }
-                        if !idea.step.isEmpty { Divider(); Text("Первый шаг").font(.caption); Text(idea.step) }
-                        Divider()
-                        Button("Редактировать") { begin(idea) }
-                        if !idea.text.isEmpty || !idea.step.isEmpty { Button("QR-код с текстом") { panel = .qr(idea) } }
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(22)
-                     .background(.white, in: RoundedRectangle(cornerRadius: 18))
-                }
-            } else {
-                Text("Дневник").font(.system(.largeTitle, design: .serif, weight: .semibold))
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if book.ideas.isEmpty { Text("Здесь появится твоя первая запись.").foregroundStyle(.secondary).padding(.vertical, 28) }
-                        ForEach(days, id: \.self) { day in
-                            HStack { Text(day, format: .dateTime.day().month(.wide).year()).font(.headline); Spacer(); Rectangle().fill(.secondary.opacity(0.25)).frame(height: 1) }
-                            ForEach(grouped[day] ?? []) { idea in
-                                Button { voice.load(idea.audio); detail = idea } label: {
-                                    HStack(alignment: .top, spacing: 14) {
-                                        VStack { Image(systemName: idea.audio == nil ? "text.alignleft" : "waveform"); Text(idea.created, style: .time).font(.caption2.monospacedDigit()) }.foregroundStyle(.secondary).frame(minWidth: 42)
-                                        Text(idea.text.isEmpty ? "Голосовая мысль" : idea.text).font(.system(.title3, design: .serif)).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
-                                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                                    }.multilineTextAlignment(.leading).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16))
-                                }
-                            }
-                        }
-                    }
+            HStack {
+                Text("Дневник").font(.system(.largeTitle, design: .serif))
+                Spacer()
+                if opened {
+                    Button { voice.stop(); if detail != nil { detail = nil } else { withAnimation(reduced ? nil : .easeInOut(duration: 0.5)) { opened = false } } } label: {
+                        Image(systemName: detail == nil ? "book.closed" : "list.bullet").frame(width: 44,height: 44)
+                    }.accessibilityLabel(detail == nil ? "Закрыть дневник" : "Все записи дня")
                 }
             }
-            Button { begin() } label: { Label("Новая идея", systemImage: "plus").font(.headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 48).background(ink, in: Capsule()) }
-        }.buttonStyle(.plain).padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(ink)
-        .background(Color(white: 0.965).ignoresSafeArea()).environment(\.locale, Locale(identifier: "ru"))
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(selectedDay, format: .dateTime.day().month(.wide).year()).font(.caption)
+                        Divider().overlay(.black.opacity(0.16))
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 18) {
+                                if let idea = detail {
+                                    Text(idea.text.isEmpty ? "Голосовая мысль" : idea.text).font(.system(.title2, design: .serif)).textSelection(.enabled)
+                                    if let clip = idea.audio {
+                                        Button { voice.play() } label: { Label(voice.playing ? "Остановить" : "Слушать", systemImage: voice.playing ? "stop.circle" : "play.circle") }
+                                        ShareLink(item: VoiceMemo.url(clip)) { Label("Отправить аудио", systemImage: "square.and.arrow.up") }
+                                    }
+                                    if !idea.step.isEmpty { Text("Первый шаг").font(.caption); Text(idea.step) }
+                                    Button("Редактировать") { begin(idea) }
+                                    let payload = [idea.text,idea.step].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                                    if !payload.isEmpty {
+                                        if payload.utf8.count <= 1800 { Button("QR-код с текстом") { panel = .qr(idea) } }
+                                        else { ShareLink("Отправить текст", item: payload) }
+                                    }
+                                } else {
+                                    ForEach(grouped[selectedDay] ?? []) { idea in
+                                        Button { voice.load(idea.audio); detail = idea } label: {
+                                            VStack(alignment: .leading, spacing: 7) {
+                                                Label(idea.created.formatted(date: .omitted,time: .shortened), systemImage: idea.audio == nil ? "pencil" : "waveform").font(.caption)
+                                                Text(idea.text.isEmpty ? "Голосовая мысль" : idea.text).font(.system(.title3,design:.serif)).lineLimit(3)
+                                                Divider()
+                                            }.frame(maxWidth: .infinity,alignment: .leading).multilineTextAlignment(.leading)
+                                        }
+                                    }
+                                    if grouped[selectedDay] == nil { Text("Здесь появится первая идея дня.").font(.system(.title3,design:.serif)) }
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }.padding(22).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
+                     .foregroundStyle(Color(white:0.13)).background(Color(red:0.94,green:0.925,blue:0.89), in: RoundedRectangle(cornerRadius:12))
+                     .opacity(opened ? 1 : 0).accessibilityHidden(!opened)
+                    Button { withAnimation(reduced ? nil : .easeInOut(duration: 0.6)) { opened = true } } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius:12).fill(LinearGradient(colors:[Color(white:0.19),Color(white:0.12)],startPoint:.leading,endPoint:.trailing))
+                            VStack(spacing:12) { SparkShape().frame(width:22,height:22); Text("Мои мысли").font(.system(.largeTitle,design:.serif)); Text("Открыть дневник").font(.subheadline).foregroundStyle(.secondary) }
+                        }.frame(maxWidth:.infinity,maxHeight:.infinity)
+                    }.rotation3DEffect(.degrees(opened && !reduced ? -100 : 0),axis:(x:0,y:1,z:0),anchor:.leading,perspective:0.65)
+                     .opacity(opened ? 0 : 1).allowsHitTesting(!opened).accessibilityHidden(opened)
+                }.padding(.horizontal, opened ? 0 : geo.size.width*0.1).padding(.vertical, opened ? 0 : 18)
+            }
+            if opened && !days.isEmpty {
+                Text("Дни с записями").font(.caption).foregroundStyle(.secondary)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) {
+                        HStack { ForEach(days, id: \.self) { day in
+                            Button { voice.stop(); detail = nil; selectedDay = day } label: {
+                                VStack(spacing:4) { Text(day,format:.dateTime.month(.abbreviated)); Text(day,format:.dateTime.day()).font(.headline) }.font(.caption).frame(width:50,height:50).background(.white.opacity(day == selectedDay ? 0.20 : 0.05),in:RoundedRectangle(cornerRadius:12))
+                            }.id(day)
+                        } }
+                    }.onAppear { proxy.scrollTo(selectedDay, anchor:.center) }
+                }
+            }
+            Button { begin() } label: { Label("Новая идея", systemImage: "plus").font(.headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 48).background(Color(white:0.21), in: Capsule()) }
+        }.buttonStyle(.plain).padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(.white)
+        .background(Color(white: 0.085).ignoresSafeArea()).environment(\.locale, Locale(identifier: "ru"))
     }
     private var rewards: some View {
         ScrollView {
@@ -265,6 +321,7 @@ struct Studio: View {
 }
 
 import AVFoundation
+import Speech
 
 @MainActor
 final class VoiceMemo: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAudioPlayerDelegate {
@@ -275,6 +332,10 @@ final class VoiceMemo: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAu
     @Published var seconds = 0.0
     @Published var levels = Array(repeating: 0.02, count: 42)
     @Published var error: String?
+    @Published var transcript = ""
+    private var engine: AVAudioEngine?
+    private var speech: SFSpeechRecognitionTask?
+    private var bufferRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recorder: AVAudioRecorder?
     private var player: AVAudioPlayer?
     private var timer: Timer?
@@ -294,6 +355,15 @@ final class VoiceMemo: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAu
         let token = request
         let allowed = await AVAudioApplication.requestRecordPermission()
         guard token == request else { return }
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "ru-RU"))
+        var mayTranscribe = false
+        if allowed, recognizer?.supportsOnDeviceRecognition == true {
+            let status: SFSpeechRecognizerAuthorizationStatus = await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+            }
+            mayTranscribe = status == .authorized
+        }
+        guard token == request else { return }
         waiting = false
         guard allowed else { error = "Разреши доступ к микрофону в настройках iPhone. Текст по-прежнему можно набрать."; return }
         do {
@@ -311,7 +381,29 @@ final class VoiceMemo: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAu
             clip = name
             seconds = 0
             levels = Array(repeating: 0.02, count: 42)
+            transcript = ""
             recording = true
+            if mayTranscribe, let recognizer, recognizer.isAvailable {
+                let input = AVAudioEngine()
+                let request = SFSpeechAudioBufferRecognitionRequest()
+                request.shouldReportPartialResults = true
+                request.requiresOnDeviceRecognition = true
+                let format = input.inputNode.outputFormat(forBus: 0)
+                if format.channelCount > 0 && format.sampleRate > 0 {
+                    input.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }
+                    do {
+                        try input.start()
+                        engine = input; bufferRequest = request
+                        speech = recognizer.recognitionTask(with: request) { [weak self] result, _ in
+                            guard let words = result?.bestTranscription.formattedString else { return }
+                            Task { @MainActor in
+                                guard let self, self.request == token, self.recording else { return }
+                                self.transcript = words
+                            }
+                        }
+                    } catch { input.inputNode.removeTap(onBus: 0) }
+                }
+            }
             timer = Timer.scheduledTimer(withTimeInterval: 0.075, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.meter() }
             }
@@ -326,6 +418,8 @@ final class VoiceMemo: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAu
     }
     func stop() {
         request = UUID(); waiting = false
+        if let engine { engine.stop(); engine.inputNode.removeTap(onBus: 0) }
+        engine = nil; bufferRequest?.endAudio(); bufferRequest = nil; speech?.cancel(); speech = nil
         timer?.invalidate(); timer = nil
         if let recorder { seconds = recorder.currentTime; recorder.delegate = nil; recorder.stop() }
         recorder = nil; recording = false
@@ -365,16 +459,6 @@ struct RecorderPanel: View {
         VStack(spacing: 12) {
             Text(voice.recording ? "Идёт запись" : voice.playing ? "Воспроизведение" : voice.clip == nil ? "Голосовая мысль" : "Голосовая запись")
                 .font(.headline)
-            if voice.recording && !reduced {
-                GeometryReader { geo in
-                    HStack(spacing: 2) {
-                        ForEach(voice.levels.indices, id: \.self) { n in
-                            Capsule().fill(tint.opacity(0.45 + 0.55 * Double(n) / 42))
-                                .frame(width: max(1,(geo.size.width-82)/42), height: 3 + 42 * voice.levels[n])
-                        }
-                    }.frame(height: geo.size.height)
-                }.frame(height: 46).accessibilityHidden(true)
-            }
             Button {
                 if voice.recording { voice.stop() }
                 else if voice.clip != nil { voice.play() }
@@ -383,11 +467,18 @@ struct RecorderPanel: View {
                 Image(systemName: voice.recording || voice.playing ? "stop.fill" : voice.clip == nil ? "mic.fill" : "play.fill")
                     .font(.title2).foregroundStyle(.black).frame(width: 64,height: 64)
                     .background(tint, in: Circle())
+                    .background {
+                        let level = reduced || !voice.recording ? 0.0 : (voice.levels.last ?? 0)
+                        ZStack {
+                            Circle().stroke(tint.opacity(0.16), lineWidth: 9).scaleEffect(1.38 + 0.45*level)
+                            Circle().stroke(tint.opacity(0.30), lineWidth: 5).scaleEffect(1.15 + 0.27*level)
+                        }.animation(reduced ? nil : .easeOut(duration:0.12), value: level)
+                    }
                     .shadow(color: tint.opacity(voice.recording ? 0.42 : 0.10), radius: voice.recording && !reduced ? 8 + 28 * (voice.levels.last ?? 0) : 6)
             }.disabled(voice.waiting)
              .accessibilityLabel(voice.recording || voice.playing ? "Остановить" : voice.clip == nil ? "Начать запись" : "Прослушать")
             Text(voice.waiting ? "Ожидание доступа…" : voice.clip == nil ? "Нажми, чтобы записать" : String(format: "%d:%02d", Int(voice.seconds)/60, Int(voice.seconds)%60))
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity).padding(16).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 24))
+        }.frame(maxWidth: .infinity).padding(.vertical, 12)
     }
 }
