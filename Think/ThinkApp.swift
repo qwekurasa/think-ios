@@ -699,6 +699,7 @@ struct JournalSetup: View {
     @State private var loading = false
     @State private var photoError = false
     @State private var leaving = false
+    @State private var promptVisible = false
     @FocusState private var typing: Bool
 
     init(existing: JournalCover?, onCancel: @escaping () -> Void, onSave: @escaping (JournalCover) -> Void) {
@@ -727,16 +728,19 @@ struct JournalSetup: View {
             }
             Spacer(minLength:4)
             NotebookObject(cover:cover)
-                .scaleEffect(leaving && !reduced ? 1.19 : 1)
-                .frame(maxHeight:290)
+                .scaleEffect(typing ? 0.53 : leaving && !reduced ? 1.19 : 1)
+                .frame(height:typing ? 150 : 280)
+                .animation(reduced ? nil : .easeInOut(duration:0.24),value:typing)
             Spacer(minLength:4)
 
             if stage == .intro {
                 Button { change(.title) } label: {
-                    Label("создай свой дневник идей",systemImage:"arrow.right").font(.callout)
+                    Text("создай свой дневник идей").font(.callout)
                         .padding(.horizontal,19).frame(minHeight:50)
                         .background(.white.opacity(0.10),in:Capsule())
-                }.transition(.move(edge:.bottom).combined(with:.opacity))
+                }.opacity(promptVisible ? 1 : 0)
+                 .offset(y:promptVisible || reduced ? 0 : 16)
+                 .accessibilityHidden(!promptVisible)
             } else if stage == .title {
                 VStack(spacing:12) {
                     TextField("Название дневника",text:$cover.title)
@@ -770,6 +774,11 @@ struct JournalSetup: View {
         }.padding(.bottom,16).foregroundStyle(.white).background(.black.ignoresSafeArea())
          .opacity(leaving ? 0 : 1)
          .buttonStyle(.plain).preferredColorScheme(.dark)
+         .task {
+             if !reduced { try? await Task.sleep(for:.milliseconds(200)) }
+             guard !Task.isCancelled else { return }
+             withAnimation(reduced ? nil : .easeOut(duration:0.3)) { promptVisible = true }
+         }
          .task(id:selection) {
              guard let item = selection else { loading = false; return }
              loading = true
@@ -817,4 +826,3 @@ struct JournalPrimary: ButtonStyle {
             .opacity(!enabled ? 0.38 : configuration.isPressed ? 0.72 : 1)
     }
 }
-
