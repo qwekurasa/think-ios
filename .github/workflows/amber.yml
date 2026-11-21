@@ -22,6 +22,17 @@ jobs:
           precondition(p.receive("и записать",start:2,end:3,at:3) == "Поймать мысль и записать")
           precondition(p.receive("и записать её",start:2,end:3.5,at:3.3) == "Поймать мысль и записать её")
           precondition(p.receive("Проверить",start:0,end:0.5,at:6) == "Поймать мысль и записать её Проверить")
+          precondition(p.receive("Проверить.",start:0,end:0.5,at:8,closing:true) == "Поймать мысль и записать её Проверить.")
+          var stop = SpeechPhrases()
+          precondition(stop.receive("В 1842-м году",start:0,end:1.2,at:1) == "В 1842-м году")
+          precondition(stop.receive("году",start:1,end:1.2,at:3,closing:true) == "В 1842-м году")
+          var repeatWords = SpeechPhrases()
+          _ = repeatWords.receive("Привет",start:0,end:0.4,at:0.5)
+          precondition(repeatWords.receive("Привет привет",start:0,end:1.1,at:1.1) == "Привет привет")
+          var replay = SpeechPhrases()
+          _ = replay.receive("первая часть",start:0,end:0.9,at:1)
+          _ = replay.receive("вторая часть",start:2,end:2.9,at:3)
+          precondition(replay.receive("первая часть вторая часть",start:0,end:2.9,at:4,closing:true) == "первая часть вторая часть")
           SWIFT
           swift "$RUNNER_TEMP/dictation.swift"
       - name: Build for iPhone

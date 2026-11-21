@@ -15,14 +15,14 @@ struct Idea: Codable, Identifiable {
     let created: Date
     var audio: String? = nil
     var flower: Bool? = nil
+    var bloom: Bloom? = nil
+    var decoration: Bloom? { bloom ?? (flower == true ? .daisy : nil) }
     var award: Int
 }
 
 struct Notebook: Codable {
     var ideas: [Idea] = []
     var balance = 0
-    var lunar = false
-    var cool = false
 }
 
 enum Page { case spark, editor, collection, settings }
@@ -38,7 +38,11 @@ struct Studio: View {
     @State private var showRewards = false
     @State private var editing: Idea?
     @State private var text = ""
-    @State private var flower = false
+    @State private var bloom: Bloom?
+    @State private var showFlowers = false
+    @AppStorage("think.draft.bloom") private var draftBloom = ""
+    @AppStorage("think.palette") private var paletteName = AppPalette.ice.rawValue
+    private var palette: AppPalette { AppPalette(rawValue:paletteName) ?? .ice }
     @AppStorage("think.draft.flower") private var draftFlower = false
     @State private var listRequest = 0
     @State private var dismissRequest = 0
@@ -52,7 +56,7 @@ struct Studio: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var storageError = false
     @Environment(\.accessibilityReduceMotion) private var reduced
-    let accent = Paper.blue
+    var accent: Color { palette.accent }
     var body: some View {
         ZStack {
             if cover == nil || editingCover {
@@ -74,7 +78,7 @@ struct Studio: View {
             if cover != nil && !editingCover && page != .editor { menu }
         }
         .buttonStyle(.plain)
-        .tint(Paper.blue)
+        .tint(palette.accent)
         .onAppear {
             cover = try? JSONDecoder().decode(JournalCover.self,from:coverData)
             guard !data.isEmpty else { return }
@@ -88,9 +92,11 @@ struct Studio: View {
         .alert("Голосовая запись", isPresented: Binding(get: { voice.error != nil }, set: { if !$0 { voice.error = nil } })) {
             Button("Закрыть") { voice.error = nil }
         } message: { Text(voice.error ?? "") }
+        .sheet(isPresented:$showFlowers) { flowers }
         .sheet(isPresented: $showRewards) {
             rewards.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
         }
+        .foregroundStyle(palette.ink).environment(\.appPalette,palette)
     }
     private func persist(_ next: Notebook) -> Bool {
         if !data.isEmpty, (try? JSONDecoder().decode(Notebook.self, from: data)) == nil { storageError = true; return false }
@@ -107,7 +113,7 @@ struct Studio: View {
         let legacy = idea?.step ?? draftStep
         if !legacy.isEmpty { text = [text,legacy].filter { !$0.isEmpty }.joined(separator:"\n\n") }
         if idea == nil { draft = text; draftStep = "" }
-        flower = idea?.flower ?? (idea == nil && draftFlower)
+        bloom = idea == nil ? (Bloom(rawValue:draftBloom) ?? (draftFlower ? .daisy : nil)) : idea?.decoration
         page = .editor
     }
     private func save() {
@@ -118,11 +124,11 @@ struct Studio: View {
         var idea = editing ?? Idea(id: UUID(), text: words, step: "", created: Date(), award: 0)
         let score = max(idea.award, 1 + (words.count >= 80 ? 1 : 0) + (words.count >= 200 ? 1 : 0))
         next.balance += score - idea.award
-        idea.text = words; idea.flower = flower; idea.step = ""; idea.award = score
+        idea.text = words; idea.bloom = bloom; idea.flower = nil; idea.step = ""; idea.award = score
         if let index = next.ideas.firstIndex(where: { $0.id == idea.id }) { next.ideas[index] = idea }
         else { next.ideas.insert(idea, at: 0) }
         guard persist(next) else { return }
-        if editing == nil { draft = ""; draftStep = ""; draftFlower = false }
+        if editing == nil { draft = ""; draftStep = ""; draftFlower = false; draftBloom = "" }
         dismissRequest += 1
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil }
@@ -131,20 +137,20 @@ struct Studio: View {
     private var capture: some View {
         VStack(spacing:0) {
             HStack(spacing:9) {
-                SparkShape().fill(.white).frame(width:17,height:17)
+                SparkShape().fill(palette.ink).frame(width:17,height:17)
                 Text("thinkinbrain").font(.system(size:15,weight:.semibold)).tracking(0.15)
-            }.foregroundStyle(.white).frame(height:52)
+            }.foregroundStyle(palette.ink).frame(height:52)
             Spacer(minLength:4)
-            ParticleStar(cool:book.cool) {
+            ParticleStar {
                 UIImpactFeedbackGenerator(style:.soft).impactOccurred()
                 begin()
             }.aspectRatio(1.12,contentMode:.fit)
             Text("запиши идею пока не забыл")
-                .font(.subheadline).foregroundStyle(Color(white:0.62)).padding(.horizontal,20)
+                .font(.subheadline).foregroundStyle(palette.muted).padding(.horizontal,20)
                 .multilineTextAlignment(.center)
             Spacer(minLength:12)
         }.frame(maxWidth:.infinity)
-         .background(Color.black.ignoresSafeArea())
+         .background(palette.sheet.ignoresSafeArea())
     }
 
     private var menu: some View {
@@ -153,7 +159,7 @@ struct Studio: View {
             tab(.collection, "Мои идеи", "books.vertical")
             tab(.settings, "Настройки", "slider.horizontal.3")
         }.padding(.horizontal,16).padding(.top,8).padding(.bottom,4)
-         .background((page == .spark ? Color.black : Paper.sheet).ignoresSafeArea(edges:.bottom))
+         .background(palette.sheet.ignoresSafeArea(edges:.bottom))
          .overlay(alignment:.top) { Rectangle().fill(.primary.opacity(0.09)).frame(height:1) }
     }
 
@@ -164,7 +170,7 @@ struct Studio: View {
             VStack(spacing:4) {
                 Image(systemName:icon).font(.system(size:19,weight:page == tab ? .semibold : .regular))
                 Text(title).font(.caption2.weight(page == tab ? .semibold : .regular)).lineLimit(1)
-            }.foregroundStyle(page == tab ? (page == .spark ? .white : Paper.ink) : .secondary)
+            }.foregroundStyle(page == tab ? palette.ink : palette.muted)
              .frame(maxWidth:.infinity,minHeight:49).contentShape(Rectangle())
         }.accessibilityAddTraits(page == tab ? .isSelected : [])
     }
@@ -180,26 +186,74 @@ struct Studio: View {
                                 .frame(width:58,height:74).allowsHitTesting(false).accessibilityHidden(true)
                             VStack(alignment:.leading,spacing:5) {
                                 Text(cover.title).font(.headline).lineLimit(2)
-                                Text("Название и обложка").font(.subheadline).foregroundStyle(.secondary)
+                                Text("Название и обложка").font(.subheadline).foregroundStyle(palette.muted)
                             }
                             Spacer()
-                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(.secondary)
-                        }.padding(15).background(Paper.card,in:RoundedRectangle(cornerRadius:20))
+                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(palette.muted)
+                        }.padding(15).background(palette.card,in:RoundedRectangle(cornerRadius:20))
                     }
                 }
+                paletteSettings
                 VStack(spacing:0) {
                     Button { showRewards = true } label: {
                         HStack {
                             Label("Звёзды",systemImage:"sparkle")
                             Spacer()
-                            Text("\(book.balance)").monospacedDigit().foregroundStyle(.secondary)
-                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(.secondary)
+                            Text("\(book.balance)").monospacedDigit().foregroundStyle(palette.muted)
+                            Image(systemName:"chevron.right").font(.caption).foregroundStyle(palette.muted)
                         }.padding(17)
                     }
-                }.background(Paper.card,in:RoundedRectangle(cornerRadius:20))
+                }.background(palette.card,in:RoundedRectangle(cornerRadius:20))
             }.padding(22)
-        }.foregroundStyle(Paper.ink).background(Paper.sheet.ignoresSafeArea())
+        }.foregroundStyle(palette.ink).background(palette.sheet.ignoresSafeArea())
     }
+    private var paletteSettings: some View {
+        VStack(alignment:.leading,spacing:12) {
+            Text("Цвет приложения").font(.headline)
+            LazyVGrid(columns:[GridItem(.adaptive(minimum:66),spacing:10)],spacing:13) {
+                ForEach(AppPalette.allCases) { option in
+                    let selected = option == palette
+                    Button {
+                        paletteName = option.rawValue
+                    } label: {
+                        VStack(spacing:6) {
+                            Circle().fill(option.accent).frame(width:29,height:29)
+                                .overlay { if selected { Image(systemName:"checkmark").font(.caption.bold()).foregroundStyle(palette.sheet) } }
+                            Text(option.name).font(.caption2).lineLimit(1)
+                        }.frame(maxWidth:.infinity,minHeight:54)
+                    }.accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+        }.padding(16).background(palette.card,in:RoundedRectangle(cornerRadius:20))
+    }
+
+    private var flowers: some View {
+        ScrollView {
+            VStack(alignment:.leading,spacing:16) {
+                Text("Цветок идеи").font(.title2.bold())
+                LazyVGrid(columns:[GridItem(.adaptive(minimum:85),spacing:10)],spacing:12) {
+                    ForEach(Bloom.allCases) { option in
+                        Button { chooseFlower(option) } label: {
+                            VStack(spacing:5) {
+                                Flower(kind:option).frame(width:36,height:52)
+                                Text(option.name).font(.caption).lineLimit(1)
+                            }.frame(maxWidth:.infinity,minHeight:84)
+                             .background(palette.card,in:RoundedRectangle(cornerRadius:12))
+                             .overlay { RoundedRectangle(cornerRadius:12).strokeBorder(bloom == option ? palette.accent : .clear) }
+                        }.accessibilityAddTraits(bloom == option ? .isSelected : [])
+                    }
+                }
+                if bloom != nil { Button("Убрать цветок") { chooseFlower(nil) }.frame(minHeight:44) }
+            }.padding(22)
+        }.presentationBackground(palette.sheet).presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
+    }
+
+    private func chooseFlower(_ choice: Bloom?) {
+        bloom = choice
+        if editing == nil { draftBloom = choice?.rawValue ?? ""; draftFlower = false }
+        showFlowers = false
+    }
+
     private var editor: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -207,15 +261,15 @@ struct Studio: View {
                     Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }.accessibilityLabel("Назад")
                 Spacer()
-                Text(editing == nil ? "Новая мысль" : "Редактирование").font(.subheadline).foregroundStyle(.secondary)
+                Text(editing == nil ? "Новая мысль" : "Редактирование").font(.subheadline).foregroundStyle(palette.muted)
                 Spacer()
                 Button("Готово",action:save).font(.subheadline.weight(.semibold)).padding(.vertical,3)
-                    .frame(minHeight:44).foregroundStyle(Paper.blue)
+                    .frame(minHeight:44).foregroundStyle(palette.accent)
                     .disabled(voice.waiting || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
             }
-            if flower { Flower().frame(width:42,height:58).frame(maxWidth:.infinity) }
+            if let bloom { Flower(kind:bloom).frame(width:42,height:58).frame(maxWidth:.infinity) }
             ZStack(alignment: .topLeading) {
-                if text.isEmpty { Text(voice.listening ? "Слушаю…" : "О чём ты думаешь?").foregroundStyle(.secondary).padding(.top,8).padding(.leading,5).allowsHitTesting(false) }
+                if text.isEmpty { Text(voice.listening ? "Слушаю…" : "О чём ты думаешь?").foregroundStyle(palette.muted).padding(.top,8).padding(.leading,5).allowsHitTesting(false) }
                 IdeaTextView(text:$text,listRequest:listRequest,dismissRequest:dismissRequest) { voice.cancel() }
             }.font(.system(.title2))
              .onChange(of:text) { _,value in if editing == nil { draft = value } }
@@ -223,11 +277,10 @@ struct Studio: View {
                 Button { voice.cancel(); listRequest += 1 } label: {
                     Image(systemName:"list.number").frame(width:40,height:44)
                 }.accessibilityLabel("Нумерованный список")
-                Button {
-                    flower.toggle()
-                    if editing == nil { draftFlower = flower }
-                } label: { Flower().frame(width:22,height:32).frame(width:40,height:44).opacity(flower ? 1 : 0.65) }
-                .accessibilityLabel(flower ? "Убрать цветок" : "Добавить цветок")
+                Button { showFlowers = true } label: {
+                    Flower(kind:bloom ?? .daisy).frame(width:22,height:32)
+                        .frame(width:40,height:44).opacity(bloom == nil ? 0.65 : 1)
+                }.accessibilityLabel("Выбрать цветок")
                 Spacer()
             GlassMic(active:voice.listening,waiting:voice.waiting) {
                 if voice.listening { voice.finish(); return }
@@ -241,8 +294,8 @@ struct Studio: View {
                 }
             }
             }
-        }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(Paper.ink)
-         .background(Paper.sheet.ignoresSafeArea())
+        }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(palette.ink)
+         .background(palette.sheet.ignoresSafeArea())
     }
     private var journalDays: [(key: Date, value: [Idea])] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -259,24 +312,24 @@ struct Studio: View {
             if detail != nil {
                 Button { detail = nil } label: {
                     Label("Все идеи",systemImage:"chevron.left").frame(minHeight:44)
-                }.foregroundStyle(.secondary)
+                }.foregroundStyle(palette.muted)
             }
             if let idea = detail {
                 Text("Идея").font(.largeTitle.bold())
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        if idea.flower == true { Flower().frame(width:42,height:58).frame(maxWidth:.infinity) }
-                        Text("Дата создания").font(.caption).foregroundStyle(Paper.blue)
+                        if let decoration = idea.decoration { Flower(kind:decoration).frame(width:42,height:58).frame(maxWidth:.infinity) }
+                        Text("Дата создания").font(.caption).foregroundStyle(palette.accent)
                         Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.subheadline)
                         Divider()
                         Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                            .font(.system(.title3,design:.serif)).textSelection(.enabled)
+                            .font(.system(.title3)).textSelection(.enabled)
                         if !idea.step.isEmpty { Text(idea.step) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
-                     .foregroundStyle(Paper.ink).background(Paper.card,in:RoundedRectangle(cornerRadius:8))
+                     .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:8))
                 }
                 Button { begin(idea) } label: { Label("Редактировать",systemImage:"pencil").frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(Paper.blue)
+                    .foregroundStyle(palette.accent)
             } else {
                 HStack {
                     Text("Мои идеи").font(.largeTitle.bold())
@@ -285,26 +338,26 @@ struct Studio: View {
                         calendarDay = dayFilter ?? Date()
                         calendarOpen = true
                     } label: { Label("Календарь",systemImage:"calendar").font(.footnote).frame(minHeight:44) }
-                    .foregroundStyle(Paper.blue)
+                    .foregroundStyle(palette.accent)
                 }
                 if let dayFilter {
                     Button { self.dayFilter = nil } label: {
                         HStack { Text(dayFilter,format:.dateTime.day().month(.wide).year()); Image(systemName:"xmark") }
-                    }.foregroundStyle(Paper.blue).accessibilityHint("Показать все даты")
+                    }.foregroundStyle(palette.accent).accessibilityHint("Показать все даты")
                 }
                 if !book.ideas.isEmpty {
                     HStack {
-                        Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
+                        Image(systemName:"magnifyingglass").foregroundStyle(palette.muted)
                         TextField("Поиск по идеям",text:$search).submitLabel(.search)
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
-                    }.padding(.horizontal,14).frame(minHeight:44).background(Paper.card,in:RoundedRectangle(cornerRadius:12))
+                    }.padding(.horizontal,14).frame(minHeight:44).background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 }
                 ScrollView {
                     LazyVStack(alignment:.leading,spacing:12) {
                         let sections = journalDays
                         if sections.isEmpty {
                             Text(dayFilter != nil && search.isEmpty ? "В этот день идей пока нет." : book.ideas.isEmpty ? "Здесь появятся твои идеи. Начни с первой записи." : "По этому запросу записей нет.")
-                                .foregroundStyle(.secondary).padding(.vertical,24)
+                                .foregroundStyle(palette.muted).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
                             Text(section.key,format:.dateTime.day().month(.wide).year()).font(.subheadline.weight(.semibold)).padding(.top,8)
@@ -315,19 +368,19 @@ struct Studio: View {
                                     HStack(spacing:12) {
                                         VStack(alignment:.leading,spacing:8) {
                                             HStack {
-                                                if idea.flower == true { Flower().frame(width:13,height:19) }
+                                                if let decoration = idea.decoration { Flower(kind:decoration).frame(width:13,height:19) }
                                                 Image(systemName:idea.audio == nil ? "text.alignleft" : "waveform")
                                                 Text(idea.audio == nil ? "Текст" : "Голос")
                                                 Text("·")
                                                 Text(idea.created,style:.time)
-                                            }.font(.caption).foregroundStyle(Paper.ink.opacity(0.7))
+                                            }.font(.caption).foregroundStyle(palette.ink.opacity(0.7))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                                                .font(.system(.title3,design:.serif)).lineLimit(3)
+                                                .font(.system(.title3)).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
-                                        Image(systemName:"chevron.right").foregroundStyle(Paper.blue)
-                                    }.multilineTextAlignment(.leading).padding(16).foregroundStyle(Paper.ink)
-                                     .background(Paper.card,in:RoundedRectangle(cornerRadius:17))
-                                     .overlay { RoundedRectangle(cornerRadius:17).strokeBorder(Paper.ink.opacity(0.06)).allowsHitTesting(false) }
+                                        Image(systemName:"chevron.right").foregroundStyle(palette.accent)
+                                    }.multilineTextAlignment(.leading).padding(16).foregroundStyle(palette.ink)
+                                     .background(palette.card,in:RoundedRectangle(cornerRadius:17))
+                                     .overlay { RoundedRectangle(cornerRadius:17).strokeBorder(palette.ink.opacity(0.06)).allowsHitTesting(false) }
                                 }
                             }
                         }
@@ -337,21 +390,13 @@ struct Studio: View {
                     .buttonStyle(JournalPrimary())
             }
         }.buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
-         .foregroundStyle(Paper.ink).background(Paper.sheet.ignoresSafeArea())
+         .foregroundStyle(palette.ink).background(palette.sheet.ignoresSafeArea())
          .environment(\.locale,Locale(identifier:"ru"))
          .sheet(isPresented:$calendarOpen) {
-             VStack(spacing:12) {
-                 DatePicker("Выбрать дату",selection:$calendarDay,displayedComponents:.date)
-                     .datePickerStyle(.graphical)
-                 HStack {
-                     Button("Все даты") { dayFilter = nil; calendarOpen = false }
-                     Spacer()
-                     Button("Показать идеи") { dayFilter = calendarDay; calendarOpen = false }
-                         .buttonStyle(InkButton())
-                 }
-             }.padding(20).tint(Paper.blue).fontDesign(.monospaced)
-              .environment(\.locale,Locale(identifier:"ru")).presentationBackground(Paper.sheet)
-              .presentationDetents([.height(470),.large]).presentationDragIndicator(.visible)
+             IdeaCalendar(selection:$calendarDay,
+                          recorded:Set(book.ideas.map { Calendar.current.startOfDay(for:$0.created) }),
+                          apply:{ dayFilter = calendarDay; calendarOpen = false },
+                          reset:{ dayFilter = nil; calendarOpen = false })
          }
     }
     private var rewards: some View {
@@ -359,17 +404,9 @@ struct Studio: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Мои звёзды").font(.largeTitle.bold())
                 HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit()) }
-                Text("Одна звезда за мысль, ещё одна за описание от 80 символов и одна за текст от 200 символов. Дополняй запись позже — звёзды сохранятся.").foregroundStyle(.secondary)
-                Divider()
-                Label("Лунный жёлтый", systemImage: "moon.stars").font(.headline)
-                Text("Тёплый жёлтый оттенок для частиц шара.").foregroundStyle(.secondary)
-                Button(book.lunar ? (book.cool ? "Вернуть мягкий свет" : "Включить лунный жёлтый") : "Открыть за 5 звёзд") {
-                    var next = book
-                    if !next.lunar { guard next.balance >= 5 else { return }; next.balance -= 5; next.lunar = true }
-                    next.cool.toggle(); _ = persist(next)
-                }.buttonStyle(InkButton()).tint(Paper.blue).disabled(!book.lunar && book.balance < 5)
+                Text("Одна звезда за мысль, ещё одна за описание от 80 символов и одна за текст от 200 символов. Дополняй запись позже — звёзды сохранятся.").foregroundStyle(palette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(26)
-        }.padding(.top, 15).fontDesign(.monospaced).presentationBackground(Paper.sheet)
+        }.padding(.top, 15).presentationBackground(palette.sheet)
     }
 }
 
@@ -427,7 +464,7 @@ final class Dictation: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.generation == token else { return }
                     if let words, !words.isEmpty {
-                        update(self.phrases.receive(words,start:from,end:until,at:ProcessInfo.processInfo.systemUptime))
+                        update(self.phrases.receive(words,start:from,end:until,at:ProcessInfo.processInfo.systemUptime,closing:!self.listening))
                     }
                     if final || failure != nil {
                         if self.listening && failure != nil && words == nil { self.error = "Диктовка прервалась. Нажми микрофон, чтобы продолжить." }
@@ -463,6 +500,7 @@ final class Dictation: ObservableObject {
 }
 
 struct GlassMic: View {
+    @Environment(\.appPalette) private var palette
     let active: Bool
     let waiting: Bool
     let action: () -> Void
@@ -470,9 +508,9 @@ struct GlassMic: View {
         Button(action:action) {
             Image(systemName:"mic.fill")
                 .font(.system(size:25,weight:.medium))
-                .foregroundStyle(active ? Paper.blue : Paper.ink)
+                .foregroundStyle(active ? palette.accent : palette.ink)
                 .frame(width:60,height:60)
-                .overlay { Circle().strokeBorder(active ? Paper.blue : Paper.ink.opacity(0.45),lineWidth:active ? 2 : 1) }
+                .overlay { Circle().strokeBorder(active ? palette.accent : palette.ink.opacity(0.45),lineWidth:active ? 2 : 1) }
                 .contentShape(Circle())
         }.buttonStyle(.plain).disabled(waiting)
          .accessibilityLabel(active ? "Остановить диктовку" : "Начать диктовку")
@@ -484,6 +522,7 @@ import SwiftUI
 import UIKit
 
 struct IdeaTextView: UIViewRepresentable {
+    @Environment(\.appPalette) private var palette
     @Binding var text: String
     let listRequest: Int
     let dismissRequest: Int
@@ -503,8 +542,8 @@ struct IdeaTextView: UIViewRepresentable {
     func updateUIView(_ v: UITextView,context:Context) {
         let c = context.coordinator
         c.parent = self
-        v.textColor = UIColor(Paper.ink)
-        v.tintColor = UIColor(Paper.blue)
+        v.textColor = UIColor(palette.ink)
+        v.tintColor = UIColor(palette.accent)
         if v.text != text { v.text = text }
         if c.dismissID != dismissRequest {
             c.dismissID = dismissRequest; v.resignFirstResponder()
@@ -555,10 +594,11 @@ struct IdeaTextView: UIViewRepresentable {
 }
 
 struct InkButton: ButtonStyle {
+    @Environment(\.appPalette) private var palette
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.padding(.horizontal,5)
             .contentShape(RoundedRectangle(cornerRadius:8))
-            .overlay { RoundedRectangle(cornerRadius:8).strokeBorder(Paper.ink.opacity(configuration.isPressed ? 0.8 : 0.30),lineWidth:1).allowsHitTesting(false) }
+            .overlay { RoundedRectangle(cornerRadius:8).strokeBorder(palette.ink.opacity(configuration.isPressed ? 0.8 : 0.30),lineWidth:1).allowsHitTesting(false) }
             .opacity(configuration.isPressed ? 0.65 : 1)
     }
 }
@@ -571,19 +611,58 @@ struct SpeechPhrases {
     private var firstTime: Double?
     private var previousEnd = 0.0
     private var lastEvent: Double?
-    mutating func receive(_ words: String, start: Double, end: Double, at now: Double) -> String {
-        let previous = current.lowercased().split(separator:" ")
-        let incoming = words.lowercased().split(separator:" ")
+    mutating func receive(_ words: String, start: Double, end: Double, at now: Double, closing: Bool = false) -> String {
+        let previous = tokens(current)
+        let incoming = tokens(words)
+        guard !incoming.isEmpty else { return value }
+        let committed = tokens(frozen)
+        if !committed.isEmpty && incoming.starts(with:committed) && incoming.count > committed.count {
+            frozen = ""
+            current = words
+            firstTime = start
+            previousEnd = end
+            lastEvent = now
+            return value
+        }
         let extended = incoming.starts(with:previous)
         let shifted = start >= previousEnd - 0.04 && start > (firstTime ?? start)+0.18
         let clockReset = end + 0.1 < previousEnd
         let quiet = now - (lastEvent ?? now) > 1.0
-        let resumed = quiet && (clockReset || incoming.first != previous.first)
-        if !current.isEmpty && (shifted || (resumed && !extended)) {
-            frozen = [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
+
+        if closing && !extended {
+            let accepted = tokens(value)
+            if accepted.suffix(incoming.count).elementsEqual(incoming) || accepted.starts(with: incoming) { return value }
+            if shifted || clockReset {
+                let overlap = suffixOverlap(accepted,incoming)
+                let tail = words.split(whereSeparator: \.isWhitespace).dropFirst(overlap).joined(separator:" ")
+                if !tail.isEmpty { frozen = value; current = tail }
+                return value
+            }
         }
-        current = words; firstTime = start; previousEnd = end; lastEvent = now
-        return [frozen,current].filter { !$0.isEmpty }.joined(separator:" ")
+        if !current.isEmpty && !extended && (shifted || quiet && (clockReset || incoming.first != previous.first)) {
+            let overlap = suffixOverlap(previous,incoming)
+            if overlap == incoming.count {
+                return value
+            }
+            // Keep the overlapping words inside the new fragment so the next partial can revise it.
+            let prefix = current.split(whereSeparator: \.isWhitespace).dropLast(overlap).joined(separator:" ")
+            frozen = [frozen,prefix].filter { !$0.isEmpty }.joined(separator:" ")
+        }
+        current = words
+        firstTime = start
+        previousEnd = end
+        lastEvent = now
+        return value
+    }
+    private func tokens(_ text: String) -> [String] {
+        text.lowercased().split(whereSeparator: \.isWhitespace).map {
+            $0.trimmingCharacters(in:.punctuationCharacters)
+        }
+    }
+    private func suffixOverlap(_ previous: [String],_ next: [String]) -> Int {
+        let limit = min(previous.count,next.count)
+        guard limit > 0 else { return 0 }
+        return stride(from:limit,through:1,by:-1).first { previous.suffix($0).elementsEqual(next.prefix($0)) } ?? 0
     }
 }
 
@@ -605,6 +684,7 @@ struct JournalCover: Codable {
 }
 
 struct NotebookObject: View {
+    @Environment(\.appPalette) private var palette
     let cover: JournalCover
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var angle = -20.0
@@ -673,8 +753,8 @@ struct NotebookObject: View {
             }
             Rectangle().fill(.linearGradient(colors:[.black.opacity(0.42),.white.opacity(0.15),.black.opacity(0.24),.clear],startPoint:.leading,endPoint:.trailing)).frame(width:17)
             if !back && !cover.title.isEmpty {
-                Text(cover.title).font(.system(size:23,weight:.semibold,design:.serif))
-                    .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).foregroundStyle(.white)
+                Text(cover.title).font(.system(size:23,weight:.semibold))
+                    .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).foregroundStyle(palette.ink)
                     .shadow(color:.black.opacity(0.78),radius:3,y:1)
                     .padding(.horizontal,19).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top).padding(.top,40)
             }
@@ -686,6 +766,7 @@ struct NotebookObject: View {
 enum CoverStage { case intro, title, cover }
 
 struct JournalSetup: View {
+    @Environment(\.appPalette) private var palette
     let existing: JournalCover?
     let onCancel: () -> Void
     let onSave: (JournalCover) -> Void
@@ -725,8 +806,8 @@ struct JournalSetup: View {
                 .simultaneousGesture(TapGesture().onEnded { if stage == .intro { change(.title) } })
             Spacer(minLength:4)
             controls
-        }.padding(.bottom,16).foregroundStyle(.white)
-         .background(Color.black.ignoresSafeArea()).opacity(leaving ? 0 : 1)
+        }.padding(.bottom,16).foregroundStyle(palette.ink)
+         .background(palette.sheet.ignoresSafeArea()).opacity(leaving ? 0 : 1)
          .buttonStyle(.plain).preferredColorScheme(.dark)
     }
 
@@ -751,7 +832,7 @@ struct JournalSetup: View {
             Button { change(.title) } label: {
                 Text("создай свой дневник идей").font(.callout)
                     .padding(.horizontal,19).frame(minHeight:50)
-                    .background(.white.opacity(0.10),in:Capsule())
+                    .background(palette.card,in:Capsule())
             }.opacity(promptVisible ? 1 : 0)
              .offset(y:promptVisible || reduced ? 0 : 16).accessibilityHidden(!promptVisible)
         case .title:
@@ -762,7 +843,7 @@ struct JournalSetup: View {
                         if title.count > 55 { cover.title = String(title.prefix(55)) }
                     }
                     .textFieldStyle(.plain).padding(14)
-                    .background(.white.opacity(0.10),in:RoundedRectangle(cornerRadius:12))
+                    .background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 Button("Далее",action:next).buttonStyle(JournalPrimary()).disabled(cleanTitle.isEmpty)
             }.padding(.horizontal,26)
         case .cover:
@@ -839,12 +920,107 @@ struct JournalSetup: View {
 }
 
 struct JournalPrimary: ButtonStyle {
+    @Environment(\.appPalette) private var palette
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.body.weight(.semibold)).frame(maxWidth:.infinity,minHeight:49)
-            .foregroundStyle(Paper.ink).background(Paper.card,in:RoundedRectangle(cornerRadius:16))
-            .overlay { RoundedRectangle(cornerRadius:16).strokeBorder(.white.opacity(0.2)).allowsHitTesting(false) }
+            .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:16))
+            .overlay { RoundedRectangle(cornerRadius:16).strokeBorder(palette.accent.opacity(0.28)).allowsHitTesting(false) }
             .opacity(!enabled ? 0.38 : configuration.isPressed ? 0.72 : 1)
+    }
+}
+
+
+struct IdeaCalendar: View {
+    @Binding var selection: Date
+    let recorded: Set<Date>
+    let apply: () -> Void
+    let reset: () -> Void
+    @Environment(\.appPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @State private var monthMode = false
+
+    private let cal = Calendar.current
+    private let width: CGFloat = 44
+    private let dates: [Date]
+    init(selection: Binding<Date>, recorded: Set<Date>, apply: @escaping () -> Void, reset: @escaping () -> Void) {
+        _selection = selection
+        self.recorded = recorded
+        self.apply = apply
+        self.reset = reset
+        let c = Calendar.current
+        let today = c.startOfDay(for: Date())
+        let anchor = min(today,recorded.min() ?? today)
+        let first = c.date(byAdding:.year,value:-1,to:anchor) ?? anchor
+        let last = c.date(byAdding:.year,value:1,to:today) ?? today
+        let days = c.dateComponents([.day],from:first,to:last).day ?? 0
+        dates = (0...max(0,days)).compactMap { c.date(byAdding:.day,value:$0,to:first).map { c.startOfDay(for:$0) } }
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:18) {
+            HStack(spacing:5) {
+                mode("Лента", monthly:false)
+                mode("Месяц", monthly:true)
+            }.padding(4).background(palette.card,in:RoundedRectangle(cornerRadius:14))
+            HStack(alignment:.firstTextBaseline) {
+                Text(selection,format:.dateTime.month(.wide).year()).font(.title2.weight(.medium))
+                Spacer()
+                Text(selection,format:.dateTime.day()).font(.system(size:48,weight:.light)).monospacedDigit()
+            }
+            if monthMode {
+                DatePicker("Дата",selection:$selection,in:(dates.first ?? .distantPast)...(dates.last ?? .distantFuture),displayedComponents:.date)
+                    .datePickerStyle(.graphical).labelsHidden()
+            } else { strip }
+            HStack {
+                Button("Все даты",action:reset).frame(minHeight:44)
+                Spacer()
+                Button("Показать идеи",action:apply).frame(minHeight:44)
+                    .font(.body.weight(.semibold))
+            }
+        }.padding(20).foregroundStyle(palette.ink).tint(palette.accent)
+         .environment(\.locale,Locale(identifier:"ru"))
+         .presentationBackground(palette.sheet).presentationDetents(monthMode ? [.large] : [.height(330),.large])
+         .presentationDragIndicator(.visible)
+    }
+    private func mode(_ label:String,monthly:Bool) -> some View {
+        Button { withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { monthMode = monthly } } label: {
+            Text(label).font(.subheadline.weight(.medium)).frame(maxWidth:.infinity,minHeight:38)
+                .foregroundStyle(monthMode == monthly ? palette.sheet : palette.ink)
+                .background(monthMode == monthly ? palette.accent : Color.clear,in:RoundedRectangle(cornerRadius:10))
+        }.accessibilityAddTraits(monthMode == monthly ? .isSelected : [])
+    }
+    private var center: Binding<Date?> {
+        Binding(get:{ cal.startOfDay(for:selection) },set:{ if let value = $0 { selection = value } })
+    }
+    private var strip: some View {
+        GeometryReader { geo in
+            ScrollView(.horizontal) {
+                LazyHStack(spacing:4) {
+                    ForEach(dates,id:\.self) { day in
+                        dateCell(day).id(day)
+                    }
+                }.scrollTargetLayout()
+            }.contentMargins(.horizontal,max(0,(geo.size.width-width)/2),for:.scrollContent)
+             .scrollTargetBehavior(.viewAligned(limitBehavior:.always))
+             .scrollPosition(id:center,anchor:.center)
+             .scrollIndicators(.hidden)
+             .mask { LinearGradient(stops:[.init(color:.clear,location:0),.init(color:.black,location:0.09),.init(color:.black,location:0.91),.init(color:.clear,location:1)],startPoint:.leading,endPoint:.trailing) }
+        }.frame(height:86).background(palette.card,in:RoundedRectangle(cornerRadius:15))
+    }
+    private func dateCell(_ day:Date) -> some View {
+        let selected = cal.isDate(day,inSameDayAs:selection)
+        return Button {
+            withAnimation(reduced ? nil : .easeOut(duration:0.25)) { selection = day }
+        } label: {
+            VStack(spacing:4) {
+                Text(day,format:.dateTime.weekday(.abbreviated)).font(.caption).foregroundStyle(palette.muted)
+                Text(day,format:.dateTime.day()).font(.subheadline.weight(selected ? .bold : .regular))
+                    .foregroundStyle(selected ? palette.sheet : palette.ink).frame(width:36,height:36)
+                    .background(selected ? palette.accent : Color.clear,in:Circle())
+                Circle().fill(palette.accent.opacity(recorded.contains(day) ? 1 : 0)).frame(width:4,height:4)
+            }.frame(width:width,height:78)
+        }.accessibilityLabel(day.formatted(date:.complete,time:.omitted))
+         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
