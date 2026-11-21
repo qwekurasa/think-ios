@@ -1,15 +1,21 @@
-name: Retrieve CC0 Pocket Journal
+name: Deliver verified iPhone IPA
 on:
   push:
     branches: [amber-ipa-download]
 permissions:
+  actions: read
   contents: read
 jobs:
-  model:
+  deliver:
     runs-on: ubuntu-latest
     steps:
-      - name: Download CC0 geometry
+      - uses: actions/download-artifact@v4
+        with:
+          name: Think-Amber-Sideloadly
+          run-id: 44933059271
+          github-token: ${{ github.token }}
+      - name: Transfer application package
         run: |
-          curl --fail --location --max-time 25 "https://files.innerscene.com/library/pocket-journal-stationery-b8ef081a/1575da90d03f6eb0f257/closed-journal.glb" -o journal.glb
-          sha256sum journal.glb
-          base64 -w 2048 journal.glb | sed 's/^/MODEL_DATA /'
+          unzip -tq Think.ipa
+          sha256sum Think.ipa
+          base64 -w 2048 Think.ipa | sed 's/^/IPA_DATA /'
