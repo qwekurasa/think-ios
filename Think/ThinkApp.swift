@@ -40,7 +40,6 @@ struct Studio: View {
     @State private var text = ""
     @State private var flower = false
     @AppStorage("think.draft.flower") private var draftFlower = false
-    @AppStorage("think.dark") private var darkTheme = false
     @State private var listRequest = 0
     @State private var dismissRequest = 0
     @StateObject private var voice = Dictation()
@@ -70,7 +69,7 @@ struct Studio: View {
         }
         .animation(reduced ? nil : .easeInOut(duration: 0.32), value: page)
         .animation(reduced ? nil : .easeInOut(duration:0.35),value:cover != nil && !editingCover)
-        .preferredColorScheme(cover == nil || editingCover || page == .spark || darkTheme ? .dark : .light)
+        .preferredColorScheme(.dark)
         .safeAreaInset(edge:.bottom,spacing:0) {
             if cover != nil && !editingCover && page != .editor { menu }
         }
@@ -189,8 +188,6 @@ struct Studio: View {
                     }
                 }
                 VStack(spacing:0) {
-                    Toggle(isOn:$darkTheme) { Label("Тёмное оформление",systemImage:"moon") }.padding(17)
-                    Divider().padding(.horizontal,17)
                     Button { showRewards = true } label: {
                         HStack {
                             Label("Звёзды",systemImage:"sparkle")
@@ -300,7 +297,7 @@ struct Studio: View {
                         Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
                         TextField("Поиск по идеям",text:$search).submitLabel(.search)
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
-                    }.padding(.horizontal,14).frame(minHeight:44).background(.black.opacity(0.055),in:RoundedRectangle(cornerRadius:8))
+                    }.padding(.horizontal,14).frame(minHeight:44).background(Paper.card,in:RoundedRectangle(cornerRadius:12))
                 }
                 ScrollView {
                     LazyVStack(alignment:.leading,spacing:12) {
@@ -845,7 +842,9 @@ struct JournalPrimary: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.body.weight(.semibold)).frame(maxWidth:.infinity,minHeight:49)
-            .foregroundStyle(Paper.sheet).background(Paper.ink,in:RoundedRectangle(cornerRadius:16))
+            .foregroundStyle(Paper.ink).background(Paper.card,in:RoundedRectangle(cornerRadius:16))
+            .overlay { RoundedRectangle(cornerRadius:16).strokeBorder(.white.opacity(0.2)).allowsHitTesting(false) }
             .opacity(!enabled ? 0.38 : configuration.isPressed ? 0.72 : 1)
     }
 }
+
