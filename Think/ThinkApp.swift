@@ -510,6 +510,7 @@ struct GlassMic: View {
                 .font(.system(size:25,weight:.medium))
                 .foregroundStyle(active ? palette.accent : palette.ink)
                 .frame(width:60,height:60)
+                .background(active ? palette.accent.opacity(0.13) : .clear,in:Circle())
                 .overlay { Circle().strokeBorder(active ? palette.accent : palette.ink.opacity(0.45),lineWidth:active ? 2 : 1) }
                 .contentShape(Circle())
         }.buttonStyle(.plain).disabled(waiting)
@@ -939,12 +940,19 @@ struct IdeaCalendar: View {
     @Environment(\.appPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduced
     @State private var monthMode = false
+    @State private var displayedMonth: Date
 
-    private let cal = Calendar.current
+    private var cal: Calendar {
+        var calendar = Calendar.current
+        calendar.locale = Locale(identifier:"ru")
+        calendar.firstWeekday = 2
+        return calendar
+    }
     private let width: CGFloat = 44
     private let dates: [Date]
     init(selection: Binding<Date>, recorded: Set<Date>, apply: @escaping () -> Void, reset: @escaping () -> Void) {
         _selection = selection
+        _displayedMonth = State(initialValue:selection.wrappedValue)
         self.recorded = recorded
         self.apply = apply
         self.reset = reset
@@ -968,8 +976,7 @@ struct IdeaCalendar: View {
                 Text(selection,format:.dateTime.day()).font(.system(size:48,weight:.light)).monospacedDigit()
             }
             if monthMode {
-                DatePicker("Дата",selection:$selection,in:(dates.first ?? .distantPast)...(dates.last ?? .distantFuture),displayedComponents:.date)
-                    .datePickerStyle(.graphical).labelsHidden()
+                monthGrid
             } else { strip }
             HStack {
                 Button("Все даты",action:reset).frame(minHeight:44)
@@ -983,7 +990,10 @@ struct IdeaCalendar: View {
          .presentationDragIndicator(.visible)
     }
     private func mode(_ label:String,monthly:Bool) -> some View {
-        Button { withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { monthMode = monthly } } label: {
+        Button {
+            displayedMonth = selection
+            withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { monthMode = monthly }
+        } label: {
             Text(label).font(.subheadline.weight(.medium)).frame(maxWidth:.infinity,minHeight:38)
                 .foregroundStyle(monthMode == monthly ? palette.sheet : palette.ink)
                 .background(monthMode == monthly ? palette.accent : Color.clear,in:RoundedRectangle(cornerRadius:10))
@@ -991,6 +1001,54 @@ struct IdeaCalendar: View {
     }
     private var center: Binding<Date?> {
         Binding(get:{ cal.startOfDay(for:selection) },set:{ if let value = $0 { selection = value } })
+    }
+    private var monthGrid: some View {
+        let monthStart = cal.dateInterval(of:.month,for:displayedMonth)?.start ?? displayedMonth
+        let blanks = (cal.component(.weekday,from:monthStart)-cal.firstWeekday+7)%7
+        let count = cal.range(of:.day,in:.month,for:monthStart)?.count ?? 31
+        let weekdays = Array(cal.shortStandaloneWeekdaySymbols.dropFirst()) + Array(cal.shortStandaloneWeekdaySymbols.prefix(1))
+        return VStack(spacing:8) {
+            HStack {
+                monthButton(-1, icon:"chevron.left")
+                Spacer()
+                Text(displayedMonth,format:.dateTime.month(.wide).year()).font(.callout.weight(.semibold))
+                Spacer()
+                monthButton(1, icon:"chevron.right")
+            }
+            LazyVGrid(columns:Array(repeating:GridItem(.flexible(),spacing:2),count:7),spacing:5) {
+                ForEach(weekdays,id:\.self) { Text($0).font(.caption).foregroundStyle(palette.muted) }
+                ForEach(0..<(blanks+count),id:\.self) { index in
+                    if index < blanks {
+                        Color.clear.frame(height:39)
+                    } else if let day = cal.date(byAdding:.day,value:index-blanks,to:monthStart) {
+                        monthDay(day)
+                    }
+                }
+            }
+        }.padding(8).background(palette.card,in:RoundedRectangle(cornerRadius:15))
+    }
+    private func monthButton(_ offset:Int, icon:String) -> some View {
+        let next = cal.date(byAdding:.month,value:offset,to:displayedMonth) ?? displayedMonth
+        let interval = cal.dateInterval(of:.month,for:next)
+        let available = interval.map { $0.end > (dates.first ?? next) && $0.start <= (dates.last ?? next) } ?? false
+        return Button { displayedMonth = next } label: { Image(systemName:icon).frame(width:44,height:44) }
+            .disabled(!available).opacity(available ? 1 : 0.35)
+            .accessibilityLabel(offset < 0 ? "Предыдущий месяц" : "Следующий месяц")
+    }
+    private func monthDay(_ day:Date) -> some View {
+        let selected = cal.isDate(day,inSameDayAs:selection)
+        let available = day >= (dates.first ?? day) && day <= (dates.last ?? day)
+        return Button { selection = day } label: {
+            VStack(spacing:2) {
+                Text(day,format:.dateTime.day()).font(.subheadline)
+                Circle().fill(selected ? palette.sheet : palette.accent)
+                    .frame(width:3,height:3).opacity(recorded.contains(day) ? 1 : 0)
+            }.foregroundStyle(selected ? palette.sheet : palette.ink)
+             .frame(maxWidth:.infinity,minHeight:39)
+             .background(selected ? palette.accent : .clear,in:RoundedRectangle(cornerRadius:8))
+        }.disabled(!available).opacity(available ? 1 : 0.35)
+         .accessibilityLabel(day.formatted(date:.complete,time:.omitted))
+         .accessibilityAddTraits(selected ? .isSelected : [])
     }
     private var strip: some View {
         GeometryReader { geo in
@@ -1023,4 +1081,3 @@ struct IdeaCalendar: View {
          .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
-
