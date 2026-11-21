@@ -18,39 +18,100 @@ struct SparkShape: Shape {
     }
 }
 
-import SwiftUI
-import SpriteKit
+
 import simd
 
-struct ParticleStar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduced
-    @Environment(\.scenePhase) private var phase
-    let cool: Bool
-    let onTap: () -> Void
-    @State private var scene = OrbScene(size: CGSize(width: 320, height: 320))
+enum Paper {
+    static let sheet = Color(white: 0.875)
+    static let ink = Color(white: 0.085)
+    static let blue = Color(red:0.16,green:0.095,blue:0.72)
+    static let card = Color(white:0.93)
+}
 
+struct Flower: View {
     var body: some View {
-        SpriteView(scene: scene, isPaused: phase != .active, preferredFramesPerSecond: 60)
-            .onAppear {
-                scene.scaleMode = .resizeFill
-                scene.configure(yellow: cool, reduced: reduced)
-                scene.onTap = onTap
+        Canvas { ctx, size in
+            let sx = size.width/44, sy = size.height/64
+            ctx.scaleBy(x:sx,y:sy)
+            var bloom = Path()
+            for i in 0...144 {
+                let a = Double(i)*Double.pi/72
+                let r = 11.5 + 3.3*cos(5*a + 0.6) + 1.1*sin(3*a)
+                let pt = CGPoint(x:22+r*cos(a),y:20+r*sin(a))
+                if i == 0 { bloom.move(to:pt) } else { bloom.addLine(to:pt) }
             }
-            .onChange(of: cool) { _, value in scene.configure(yellow: value, reduced: reduced) }
-            .onChange(of: reduced) { _, value in scene.configure(yellow: cool, reduced: value) }
-            .accessibilityElement(children: .ignore).accessibilityLabel("Записать идею")
-            .accessibilityAddTraits(.isButton).accessibilityAction { onTap() }
+            bloom.closeSubpath()
+            bloom.addEllipse(in:CGRect(x:19,y:17,width:6,height:7))
+            bloom.move(to:CGPoint(x:22,y:36))
+            bloom.addQuadCurve(to:CGPoint(x:21,y:60),control:CGPoint(x:23,y:48))
+            bloom.move(to:CGPoint(x:22,y:52))
+            bloom.addQuadCurve(to:CGPoint(x:11,y:42),control:CGPoint(x:11,y:51))
+            bloom.addQuadCurve(to:CGPoint(x:22,y:52),control:CGPoint(x:21,y:40))
+            bloom.addQuadCurve(to:CGPoint(x:33,y:42),control:CGPoint(x:33,y:50))
+            bloom.addQuadCurve(to:CGPoint(x:22,y:52),control:CGPoint(x:25,y:39))
+            ctx.stroke(bloom,with:.color(Paper.blue),style:StrokeStyle(lineWidth:1.9,lineCap:.round,lineJoin:.round))
+        }.accessibilityHidden(true)
     }
 }
 
-final class OrbScene: SKScene {
-    private struct Dot {
-        let normal: SIMD3<Double>
-        let phase: Double
-        let sprite: SKSpriteNode
+struct ParticleStar: UIViewRepresentable {
+    @Environment(\.accessibilityReduceMotion) var reduced
+    @Environment(\.scenePhase) var phase
+    let cool: Bool
+    let onTap: () -> Void
+    func makeUIView(context: Context) -> OrbSurface { OrbSurface() }
+    func updateUIView(_ view: OrbSurface, context: Context) {
+        view.yellow = cool
+        view.reduced = reduced
+        view.active = phase == .active
+        view.onTap = onTap
+        view.refreshClock()
+        view.setNeedsDisplay()
     }
+    static func dismantleUIView(_ view: OrbSurface, coordinator: ()) { view.stopClock() }
+}
+
+final class OrbSurface: UIView {
+    struct Dot { let normal: SIMD3<Double>; let phase: Double; let diameter: Double }
+    private static let dots: [Dot] = {
+        var result = [Dot]()
+        for row in 1..<39 {
+            let phi = Double(row)*Double.pi/39
+            let count = max(6,Int(80*sin(phi)))
+            for i in 0..<count {
+                let a = 2*Double.pi*(Double(i)+Double(row%2)*0.5)/Double(count)
+                let seed = Double((row*751+i*317+row*i*29)%997)/997
+                result.append(Dot(normal: SIMD3(sin(phi)*cos(a),cos(phi),sin(phi)*sin(a)),phase:seed*2*Double.pi,diameter:0.9+seed*1.0))
+            }
+        }
+        return result
+    }()
+    var yellow = false
+    var reduced = false
+    var active = true
     var onTap: (() -> Void)?
-    private var dots: [Dot] = []
+    private var link: CADisplayLink?
+    override init(frame: CGRect) {
+        super.init(frame:frame)
+        isOpaque = false
+        backgroundColor = .clear
+        contentMode = .redraw
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = "Записать идею"
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func accessibilityActivate() -> Bool { onTap?(); return true }
+    override func didMoveToWindow() { super.didMoveToWindow(); refreshClock(); setNeedsDisplay() }
+    func refreshClock() {
+        guard active, window != nil, !reduced || held else { stopClock(); return }
+        guard link == nil else { return }
+        let timer = CADisplayLink(target:self,selector:#selector(tick(_:)))
+        timer.preferredFramesPerSecond = 60
+        timer.add(to:.main,forMode:.common)
+        link = timer
+    }
+    func stopClock() { link?.invalidate(); link = nil; lastFrame = nil }
     private var orientation = simd_quatd(angle: 0, axis: SIMD3(0,1,0))
     private var velocity = SIMD2<Double>.zero
     private var pending = SIMD2<Double>.zero
@@ -61,44 +122,11 @@ final class OrbScene: SKScene {
     private var held = false
     private var dragged = false
     private var clock = 0.0
-    private var reduced = false
-    private var yellow = false
-
-    override func didMove(to view: SKView) {
-        backgroundColor = .black
-        isUserInteractionEnabled = true
-        guard dots.isEmpty else { return }
-        let texture = SKTexture(image: UIGraphicsImageRenderer(size: CGSize(width:8,height:8)).image { ctx in
-            UIColor.white.setFill()
-            ctx.cgContext.fillEllipse(in: CGRect(x:1,y:1,width:6,height:6))
-        })
-        for row in 1..<48 {
-            let phi = Double(row) * .pi / 48
-            let count = max(6, Int(96*sin(phi)))
-            for column in 0..<count {
-                let theta = 2*Double.pi*(Double(column)+Double(row%2)*0.5)/Double(count)
-                let seed = Double((row*751 + column*317 + row*column*29)%997)/997
-                let normal = SIMD3(sin(phi)*cos(theta),cos(phi),sin(phi)*sin(theta))
-                let sprite = SKSpriteNode(texture:texture)
-                sprite.colorBlendFactor = 1
-                sprite.size = CGSize(width:1.1+seed,height:1.1+seed)
-                addChild(sprite)
-                dots.append(Dot(normal:normal,phase:seed*2*Double.pi,sprite:sprite))
-            }
-        }
-        configure(yellow:yellow,reduced:reduced)
-    }
-    func configure(yellow: Bool, reduced: Bool) {
-        self.yellow = yellow
-        self.reduced = reduced
-        let color = yellow ? UIColor(red:1,green:0.86,blue:0.48,alpha:1) : UIColor(white:0.93,alpha:1)
-        for dot in dots { dot.sprite.color = color }
-    }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         previousTouch = touch.location(in:self)
         origin = previousTouch
-        held = true; dragged = false
+        held = true; dragged = false; refreshClock()
         lastInput = touch.timestamp
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -106,8 +134,8 @@ final class OrbScene: SKScene {
         let point = touch.location(in:self)
         if !dragged && hypot(point.x-origin.x,point.y-origin.y) < 5 { return }
         dragged = true
-        let sensitivity = 2.5/max(65,min(size.width,size.height)*0.345)
-        let delta = SIMD2(Double(point.x-previousTouch.x),Double(point.y-previousTouch.y))*sensitivity
+        let sensitivity = 2.5/max(65,min(bounds.width,bounds.height)*0.345)
+        let delta = SIMD2(Double(point.x-previousTouch.x),Double(previousTouch.y-point.y))*sensitivity
         let dt = max(1.0/240,min(0.1,touch.timestamp-lastInput))
         pending += delta
         let sample = delta/dt
@@ -121,12 +149,21 @@ final class OrbScene: SKScene {
         let idle = max(0,(touches.first?.timestamp ?? lastInput)-lastInput)
         velocity *= exp(-idle*18)
         held = false
-        if !dragged { onTap?() }
+        if reduced { applyPending(); refreshClock() }; if !dragged { onTap?() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        held = false; velocity = .zero
+        held = false; velocity = .zero; if reduced { applyPending(); refreshClock() }
     }
-    override func update(_ time: TimeInterval) {
+    private func applyPending() {
+        let angle = simd_length(pending)
+        if angle > 0.000001 {
+            orientation = simd_normalize(simd_quatd(angle:angle,axis:SIMD3(-pending.y,pending.x,0)/angle)*orientation)
+        }
+        pending = .zero
+        setNeedsDisplay()
+    }
+    @objc private func tick(_ link: CADisplayLink) {
+        let time = link.timestamp
         let dt = min(0.05,max(0,time-(lastFrame ?? time)))
         lastFrame = time
         var delta = pending*(1-exp(-dt*36))
@@ -142,18 +179,27 @@ final class OrbScene: SKScene {
             orientation = simd_normalize(simd_quatd(angle:angle,axis:axis)*orientation)
         }
         if !reduced { clock += dt + angle*0.65 }
+        setNeedsDisplay()
+    }
+    override func draw(_ rect: CGRect) {
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        let buckets = (0..<8).map { _ in CGMutablePath() }
         let matrix = simd_double3x3(orientation)
-        let radius = min(size.width,size.height)*0.345
+        let radius = min(bounds.width,bounds.height)*0.345
         let front = 1.5*cos(clock*0.83)
-        for dot in dots {
+        for dot in Self.dots {
             let v = matrix*dot.normal
             let blend = reduced ? 0 : min(1,max(0,(dot.normal.x-front)*1.8))
             let displacement = blend*blend*(3-2*blend)*0.09
             let x = v.x + displacement*cos(dot.phase+clock*1.6)
             let y = v.y + displacement*sin(dot.phase*2+clock*1.3)
-            dot.sprite.position = CGPoint(x:size.width/2+radius*x,y:size.height/2+radius*y)
-            dot.sprite.alpha = 0.22+0.68*(v.z+1)/2
+            let d = dot.diameter
+            buckets[min(7,max(0,Int((v.z+1)*3.99)))].addEllipse(in:CGRect(x:bounds.midX+radius*x-d/2,y:bounds.midY-radius*y-d/2,width:d,height:d))
+        }
+        let color = yellow ? UIColor(red:0.70,green:0.50,blue:0.06,alpha:1) : UIColor(Paper.blue)
+        for (index,path) in buckets.enumerated() {
+            ctx.setFillColor(color.withAlphaComponent(0.20+Double(index)*0.095).cgColor)
+            ctx.addPath(path); ctx.fillPath()
         }
     }
 }
-

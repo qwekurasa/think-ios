@@ -38,6 +38,9 @@ struct Studio: View {
     @StateObject private var voice = Dictation()
     @State private var editorOrigin = Page.spark
     @State private var search = ""
+    @State private var dayFilter: Date?
+    @State private var calendarDay = Date()
+    @State private var calendarOpen = false
     @State private var detail: Idea?
     @Environment(\.scenePhase) private var scenePhase
     @State private var showStep = false
@@ -45,7 +48,7 @@ struct Studio: View {
     @FocusState private var focus: Field?
     @Environment(\.accessibilityReduceMotion) private var reduced
     enum Field { case thought, step }
-    let accent = Color.white
+    let accent = Paper.blue
     var body: some View {
         ZStack {
             if page == .collection { archive.transition(.opacity) }
@@ -53,8 +56,9 @@ struct Studio: View {
             else { capture.transition(.opacity) }
         }
         .animation(reduced ? nil : .easeInOut(duration: 0.32), value: page)
-        .preferredColorScheme(.dark)
-        .tint(.white)
+        .preferredColorScheme(.light)
+        .fontDesign(.monospaced)
+        .tint(Paper.blue)
         .onAppear {
             guard !data.isEmpty else { return }
             do { book = try JSONDecoder().decode(Notebook.self, from: data) }
@@ -103,13 +107,13 @@ struct Studio: View {
         if editing == nil { draft = ""; draftStep = "" }
         focus = nil
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if editing != nil { detail = idea } else { detail = nil; search = "" }
+        if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil }
         page = .collection
     }
     private var brand: some View {
         HStack(spacing: 6) {
             SparkShape().frame(width: 22, height: 22)
-            Text("think").font(.system(size: 30, weight: .semibold)).tracking(-2)
+            Text("think").font(.system(size:30,weight:.semibold,design:.default)).fontDesign(.default).tracking(-2)
         }.accessibilityElement(children: .ignore).accessibilityLabel("think")
     }
     private var balance: some View {
@@ -125,23 +129,24 @@ struct Studio: View {
         VStack(spacing: 0) {
             HStack { brand; Spacer(); balance }.padding(.horizontal, 24)
             Spacer(minLength: 8)
+            Flower().frame(width:37,height:54)
             VStack(spacing: 12) {
                 ParticleStar(cool: book.cool) {
                     UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                     begin()
                 }.aspectRatio(1.12, contentMode: .fit)
                 Button("Поймай мысль.") { begin() }
-                    .font(.system(.largeTitle, design: .default, weight: .medium)).tracking(-1.6)
+                    .font(.system(.title,design:.monospaced)).foregroundStyle(Paper.blue)
                 Text("Крути шар пальцем. Коснись, чтобы записать.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity)
             Spacer(minLength: 20)
-            Button { detail = nil; search = ""; page = .collection } label: {
+            Button { detail = nil; search = ""; dayFilter = nil; page = .collection } label: {
                 Label("Идеи · \(book.ideas.count)", systemImage: "square.stack").font(.callout)
-                    .padding(.horizontal, 20).frame(minHeight: 48).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius:8))
+                    .padding(.horizontal, 20).frame(minHeight: 48).background(.black.opacity(0.055), in: RoundedRectangle(cornerRadius:8))
             }.padding(.bottom, 12)
-        }.buttonStyle(.plain).foregroundStyle(.white)
-         .background(Color.black.ignoresSafeArea())
+        }.buttonStyle(.plain).foregroundStyle(Paper.ink)
+         .background(Paper.sheet.ignoresSafeArea())
     }
     private var editor: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -158,7 +163,7 @@ struct Studio: View {
                 if text.isEmpty { Text(voice.listening ? "Слушаю…" : "О чём ты думаешь?").foregroundStyle(.secondary).padding(.top,8).padding(.leading,5).allowsHitTesting(false) }
                 TextEditor(text:$text).scrollContentBackground(.hidden).focused($focus,equals:.thought)
                     .accessibilityLabel("Текст идеи")
-            }.font(.system(.title,weight:.medium))
+            }.font(.system(.title2,design:.monospaced))
              .onChange(of:text) { _,value in if editing == nil { draft = value } }
              .onChange(of:focus) { _,field in if field != nil { voice.cancel() } }
             GlassMic(active:voice.listening,waiting:voice.waiting) {
@@ -175,24 +180,24 @@ struct Studio: View {
             if showStep && !voice.listening {
                 TextField("Что можно сделать первым?", text: $step, axis: .vertical)
                     .lineLimit(1...3).focused($focus, equals: .step).padding(12)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .background(.black.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
                     .onChange(of: step) { _, value in if editing == nil { draftStep = value } }
             }
             HStack {
                 if !showStep { Button("＋ Первый шаг") { showStep = true; focus = .step }.font(.subheadline) }
                 Spacer()
-                Button("Сохранить", action: save).font(.headline).foregroundStyle(.black)
+                Button("Сохранить", action: save).font(.headline).foregroundStyle(.white)
                     .padding(.horizontal, 19).frame(minHeight: 46).background(accent, in: RoundedRectangle(cornerRadius:8))
                     .disabled(voice.waiting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(.white)
-         .background(Color(white: 0.045).ignoresSafeArea())
+        }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(Paper.ink)
+         .background(Paper.sheet.ignoresSafeArea())
     }
     private var journalDays: [(key: Date, value: [Idea])] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let matches = book.ideas.filter { idea in
-            query.isEmpty || [idea.text, idea.step, idea.audio == nil ? "" : "Голосовая запись"]
-                .contains { $0.localizedCaseInsensitiveContains(query) }
+            (dayFilter.map { Calendar.current.isDate($0,inSameDayAs:idea.created) } ?? true) && (query.isEmpty || [idea.text, idea.step, idea.audio == nil ? "" : "Голосовая запись"]
+                .contains { $0.localizedCaseInsensitiveContains(query) })
         }
         return Dictionary(grouping: matches.sorted { $0.created > $1.created }) {
             Calendar.current.startOfDay(for: $0.created)
@@ -212,37 +217,51 @@ struct Studio: View {
                 balance
             }
             if let idea = detail {
-                Text("Идея").font(.custom("Arial-BoldMT",size:34,relativeTo:.largeTitle))
+                Text("Идея").font(.custom("Menlo-Bold",size:34,relativeTo:.largeTitle))
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.custom("ArialMT",size:15,relativeTo:.subheadline))
+                        Text("Дата создания").font(.caption).foregroundStyle(Paper.blue)
+                        Text(idea.created, format: .dateTime.day().month(.wide).year().hour().minute()).font(.custom("Menlo-Regular",size:15,relativeTo:.subheadline))
                         Divider()
                         Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                            .font(.custom("ArialMT",size:21,relativeTo:.title3)).textSelection(.enabled)
-                        if !idea.step.isEmpty { Text("Первый шаг").font(.custom("ArialMT",size:17,relativeTo:.headline)); Text(idea.step) }
+                            .font(.custom("Menlo-Regular",size:21,relativeTo:.title3)).textSelection(.enabled)
+                        if !idea.step.isEmpty { Text("Первый шаг").font(.custom("Menlo-Regular",size:17,relativeTo:.headline)); Text(idea.step) }
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
-                     .foregroundStyle(.white).background(Color(white:0.19),in:RoundedRectangle(cornerRadius:8))
+                     .foregroundStyle(Paper.ink).background(Paper.card,in:RoundedRectangle(cornerRadius:8))
                 }
                 Button { begin(idea) } label: { Label("Редактировать",systemImage:"pencil").frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(.black).background(.white,in:RoundedRectangle(cornerRadius:8))
+                    .foregroundStyle(.white).background(Paper.blue,in:RoundedRectangle(cornerRadius:8))
             } else {
-                Text("Идеи").font(.custom("Arial-BoldMT",size:34,relativeTo:.largeTitle))
+                HStack {
+                    Text("Идеи").font(.custom("Menlo-Bold",size:34,relativeTo:.largeTitle))
+                    Spacer()
+                    Button {
+                        calendarDay = dayFilter ?? Date()
+                        calendarOpen = true
+                    } label: { Label("Календарь",systemImage:"calendar").font(.footnote).frame(minHeight:44) }
+                    .foregroundStyle(Paper.blue)
+                }
+                if let dayFilter {
+                    Button { self.dayFilter = nil } label: {
+                        HStack { Text(dayFilter,format:.dateTime.day().month(.wide).year()); Image(systemName:"xmark") }
+                    }.foregroundStyle(Paper.blue).accessibilityHint("Показать все даты")
+                }
                 if !book.ideas.isEmpty {
                     HStack {
                         Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
                         TextField("Поиск по идеям",text:$search).submitLabel(.search)
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
-                    }.padding(.horizontal,14).frame(minHeight:44).background(.white.opacity(0.09),in:RoundedRectangle(cornerRadius:8))
+                    }.padding(.horizontal,14).frame(minHeight:44).background(.black.opacity(0.055),in:RoundedRectangle(cornerRadius:8))
                 }
                 ScrollView {
                     LazyVStack(alignment:.leading,spacing:12) {
                         let sections = journalDays
                         if sections.isEmpty {
-                            Text(book.ideas.isEmpty ? "Здесь появятся твои идеи. Начни с первой записи." : "По этому запросу записей нет.")
+                            Text(dayFilter != nil && search.isEmpty ? "В этот день идей пока нет." : book.ideas.isEmpty ? "Здесь появятся твои идеи. Начни с первой записи." : "По этому запросу записей нет.")
                                 .foregroundStyle(.secondary).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
-                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.custom("ArialMT",size:17,relativeTo:.headline)).padding(.top,8)
+                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.custom("Menlo-Regular",size:17,relativeTo:.headline)).padding(.top,8)
                             ForEach(section.value) { idea in
                                 Button {
                                     detail = idea
@@ -254,24 +273,38 @@ struct Studio: View {
                                                 Text(idea.audio == nil ? "Текст" : "Голос")
                                                 Text("·")
                                                 Text(idea.created,style:.time)
-                                            }.font(.custom("ArialMT",size:12,relativeTo:.caption)).foregroundStyle(Color(white:0.79))
+                                            }.font(.custom("Menlo-Regular",size:12,relativeTo:.caption)).foregroundStyle(Color(white:0.32))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                                                .font(.custom("ArialMT",size:21,relativeTo:.title3)).lineLimit(3)
+                                                .font(.custom("Menlo-Regular",size:21,relativeTo:.title3)).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
-                                        Image(systemName:"chevron.right").foregroundStyle(Color(white:0.78))
-                                    }.multilineTextAlignment(.leading).padding(16).foregroundStyle(.white)
-                                     .background(Color(white:0.19),in:RoundedRectangle(cornerRadius:8))
+                                        Image(systemName:"chevron.right").foregroundStyle(Paper.blue)
+                                    }.multilineTextAlignment(.leading).padding(16).foregroundStyle(Paper.ink)
+                                     .background(Paper.card,in:RoundedRectangle(cornerRadius:8))
                                 }
                             }
                         }
                     }
                 }.scrollDismissesKeyboard(.interactively)
-                Button { begin() } label: { Label("Новая идея",systemImage:"plus").font(.custom("ArialMT",size:17,relativeTo:.headline)).frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(.black).background(.white,in:RoundedRectangle(cornerRadius:8))
+                Button { begin() } label: { Label("Новая идея",systemImage:"plus").font(.custom("Menlo-Regular",size:17,relativeTo:.headline)).frame(maxWidth:.infinity,minHeight:48) }
+                    .foregroundStyle(.white).background(Paper.blue,in:RoundedRectangle(cornerRadius:8))
             }
-        }.font(.custom("ArialMT",size:17,relativeTo:.body)).buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
-         .foregroundStyle(.white).background(Color.black.ignoresSafeArea())
+        }.font(.custom("Menlo-Regular",size:17,relativeTo:.body)).buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
+         .foregroundStyle(Paper.ink).background(Paper.sheet.ignoresSafeArea())
          .environment(\.locale,Locale(identifier:"ru"))
+         .sheet(isPresented:$calendarOpen) {
+             VStack(spacing:12) {
+                 DatePicker("Выбрать дату",selection:$calendarDay,displayedComponents:.date)
+                     .datePickerStyle(.graphical)
+                 HStack {
+                     Button("Все даты") { dayFilter = nil; calendarOpen = false }
+                     Spacer()
+                     Button("Показать идеи") { dayFilter = calendarDay; calendarOpen = false }
+                         .buttonStyle(.borderedProminent)
+                 }
+             }.padding(20).tint(Paper.blue).fontDesign(.monospaced)
+              .environment(\.locale,Locale(identifier:"ru")).presentationBackground(Paper.sheet)
+              .presentationDetents([.height(470),.large]).presentationDragIndicator(.visible)
+         }
     }
     private var rewards: some View {
         ScrollView {
@@ -286,9 +319,9 @@ struct Studio: View {
                     var next = book
                     if !next.lunar { guard next.balance >= 5 else { return }; next.balance -= 5; next.lunar = true }
                     next.cool.toggle(); _ = persist(next)
-                }.buttonStyle(.borderedProminent).tint(Color(white:0.27)).disabled(!book.lunar && book.balance < 5)
+                }.buttonStyle(.borderedProminent).tint(Paper.blue).disabled(!book.lunar && book.balance < 5)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(26)
-        }.padding(.top, 15)
+        }.padding(.top, 15).fontDesign(.monospaced).presentationBackground(Paper.sheet)
     }
 }
 
@@ -377,21 +410,18 @@ struct GlassMic: View {
     let action: () -> Void
     var body: some View {
         Button(action:action) {
-            HStack(spacing:9) {
-                Image(systemName:active ? "stop.fill" : "mic.fill")
-                Text(waiting ? "Подключение…" : active ? "Остановить" : "Диктовать")
-            }.font(.callout.weight(.medium)).foregroundStyle(.white)
-             .padding(.horizontal,24).frame(height:48)
-             .background {
-                 let shape = RoundedRectangle(cornerRadius:8,style:.continuous)
-                 ZStack {
-                     shape.fill(.ultraThinMaterial)
-                     shape.fill(LinearGradient(colors:[.white.opacity(0.23),.clear,.black.opacity(0.27),.white.opacity(0.10)],startPoint:.topLeading,endPoint:.bottomTrailing))
-                     shape.strokeBorder(AngularGradient(colors:[.white.opacity(0.15),.white.opacity(0.85),.white.opacity(0.09),.white.opacity(0.70),.white.opacity(0.15)],center:.center),lineWidth:1.1)
-                     shape.inset(by:2).strokeBorder(.white.opacity(0.08),lineWidth:1)
-                 }.shadow(color:.white.opacity(active ? 0.19 : 0.06),radius:6)
-             }
+            Image(systemName:"mic.fill")
+                .font(.system(size:25,weight:.medium))
+                .foregroundStyle(active ? Color.white : Paper.blue)
+                .frame(width:66,height:66)
+                .background {
+                    Circle().fill(active ? Paper.blue : Paper.card)
+                        .overlay { Circle().fill(.linearGradient(colors:[.white.opacity(0.35),.clear,.black.opacity(0.06)],startPoint:.topLeading,endPoint:.bottomTrailing)) }
+                        .overlay { Circle().strokeBorder(.linearGradient(colors:[.white,Paper.blue.opacity(0.32)],startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:1.2) }
+                        .shadow(color:Paper.blue.opacity(active ? 0.28 : 0.12),radius:active ? 9 : 4,y:2)
+                }.contentShape(Circle())
         }.buttonStyle(.plain).disabled(waiting)
+         .accessibilityLabel(active ? "Остановить диктовку" : "Начать диктовку")
     }
 }
 
