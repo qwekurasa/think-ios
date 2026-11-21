@@ -18,11 +18,57 @@ struct Idea: Codable, Identifiable {
     var bloom: Bloom? = nil
     var decoration: Bloom? { bloom ?? (flower == true ? .daisy : nil) }
     var award: Int
+    var completedAt: Date? = nil
+    var archivedAt: Date? = nil
+    var pinnedUntil: Date? = nil
+    var section: IdeaSection {
+        if completedAt != nil { return .completed }
+        return archivedAt == nil ? .active : .archived
+    }
 }
 
 struct Notebook: Codable {
     var ideas: [Idea] = []
     var balance = 0
+    var lastSeen: Date? = nil
+
+    static let pinPrice = 12
+    static let completionReward = 5
+    static let day: TimeInterval = 86_400
+
+    mutating func resume(at now:Date) {
+        if let lastSeen, now.timeIntervalSince(lastSeen) >= 7 * Self.day {
+            for index in ideas.indices where ideas[index].section == .active {
+                if (ideas[index].pinnedUntil ?? .distantPast) <= now { ideas[index].archivedAt = now }
+            }
+        }
+        lastSeen = now
+    }
+    mutating func complete(_ id:UUID,at now:Date) -> Idea? {
+        guard let i = ideas.firstIndex(where:{ $0.id == id }), ideas[i].section == .active else { return nil }
+        ideas[i].completedAt = now
+        balance += Self.completionReward
+        return ideas[i]
+    }
+    mutating func pin(_ id:UUID,at now:Date) -> Idea? {
+        guard balance >= Self.pinPrice, let i = ideas.firstIndex(where:{ $0.id == id }),
+              ideas[i].section == .active, (ideas[i].pinnedUntil ?? .distantPast) <= now else { return nil }
+        balance -= Self.pinPrice
+        ideas[i].pinnedUntil = now.addingTimeInterval(30 * Self.day)
+        return ideas[i]
+    }
+    mutating func restore(_ id:UUID) -> Idea? {
+        guard let i = ideas.firstIndex(where:{ $0.id == id }), ideas[i].section == .archived else { return nil }
+        ideas[i].archivedAt = nil
+        return ideas[i]
+    }
+}
+
+enum IdeaSection: String, CaseIterable, Identifiable {
+    case active = "Активные"
+    case completed = "Выполненные"
+    case archived = "Архив"
+    var id: Self { self }
 }
 
 enum Page { case spark, editor, collection, settings }
@@ -36,6 +82,9 @@ struct Studio: View {
     @State private var editingCover = false
     @State private var page = Page.spark
     @State private var showRewards = false
+    @State private var confirmReset = false
+    @State private var confirmPin = false
+    @State private var section: IdeaSection = .active
     @State private var editing: Idea?
     @State private var text = ""
     @State private var bloom: Bloom?
@@ -66,6 +115,7 @@ struct Studio: View {
                     coverData = encoded
                     cover = newCover
                     editingCover = false
+                    noteVisit()
                 }.transition(.opacity)
             } else if page == .collection { archive.transition(.opacity) }
             else if page == .editor { editor.transition(.opacity.combined(with: .offset(y: reduced ? 0 : 12))) }
@@ -81,14 +131,26 @@ struct Studio: View {
         .buttonStyle(.plain)
         .tint(palette.accent)
         .onAppear {
-            guard !data.isEmpty else { return }
-            do { book = try JSONDecoder().decode(Notebook.self, from: data) }
-            catch { storageError = true }
+            if !data.isEmpty {
+                do { book = try JSONDecoder().decode(Notebook.self,from:data) }
+                catch { storageError = true; return }
+            }
+            noteVisit()
         }
-        .alert("Не удалось прочитать коллекцию", isPresented: $storageError) {
-            Button("Закрыть", role: .cancel) {}
+        .alert("Не удалось прочитать коллекцию",isPresented:$storageError) {
+            Button("Закрыть",role:.cancel) {}
         } message: { Text("Исходные записи сохранены на устройстве.") }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { voice.cancel() } }
+        .onChange(of:scenePhase) { _,phase in
+            if phase == .active { noteVisit() }
+            if phase == .background {
+                voice.cancel()
+                if cover != nil && !storageError && book.lastSeen != nil {
+                    var next = book
+                    next.lastSeen = Date()
+                    _ = persist(next)
+                }
+            }
+        }
         .alert("Голосовая запись", isPresented: Binding(get: { voice.error != nil }, set: { if !$0 { voice.error = nil } })) {
             Button("Закрыть") { voice.error = nil }
         } message: { Text(voice.error ?? "") }
@@ -105,6 +167,34 @@ struct Studio: View {
         book = next
         return true
     }
+    private func noteVisit() {
+        guard cover != nil, !storageError else { return }
+        var next = book
+        next.resume(at:Date())
+        _ = persist(next)
+    }
+
+    private func resetApp() {
+        voice.cancel()
+        data = Data(); coverData = Data()
+        draft = ""; draftStep = ""; draftBloom = ""; draftFlower = false
+        paletteName = AppPalette.ice.rawValue
+        UserDefaults.standard.removeObject(forKey:"think.draft.audio")
+        let voiceDirectory = URL.applicationSupportDirectory.appending(path:"ThinkVoice",directoryHint:.isDirectory)
+        try? FileManager.default.removeItem(at:voiceDirectory)
+        book = Notebook(); cover = nil; page = .spark; editingCover = false
+        editing = nil; detail = nil; text = ""; bloom = nil
+        search = ""; dayFilter = nil; yearFilter = nil; section = .active
+    }
+
+    private func resolveIdea(_ id:UUID,change:(inout Notebook,UUID) -> Idea?) {
+        var next = book
+        guard let updated = change(&next,id), persist(next) else { return }
+        detail = updated
+        section = updated.section
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
     private func begin(_ idea: Idea? = nil) {
         editorOrigin = page
         editing = idea
@@ -131,7 +221,7 @@ struct Studio: View {
         if editing == nil { draft = ""; draftStep = ""; draftFlower = false; draftBloom = "" }
         dismissRequest += 1
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if editing != nil { detail = idea } else { detail = nil; search = ""; dayFilter = nil; yearFilter = nil }
+        if editing != nil { detail = idea } else { detail = nil; section = .active; search = ""; dayFilter = nil; yearFilter = nil }
         page = .collection
     }
     private var capture: some View {
@@ -184,7 +274,7 @@ struct Studio: View {
                 if let cover {
                     Button { editingCover = true } label: {
                         HStack(spacing:16) {
-                            NotebookObject(cover:cover).scaleEffect(0.24)
+                            JournalModel(cover:cover).frame(width:60,height:74)
                                 .frame(width:58,height:74).allowsHitTesting(false).accessibilityHidden(true)
                             VStack(alignment:.leading,spacing:5) {
                                 Text(cover.title).font(.headline).lineLimit(2)
@@ -206,8 +296,17 @@ struct Studio: View {
                         }.padding(17)
                     }
                 }.background(palette.card,in:RoundedRectangle(cornerRadius:20))
+                Button(role:.destructive) { confirmReset = true } label: {
+                    Label("Сбросить приложение",systemImage:"arrow.counterclockwise")
+                        .frame(maxWidth:.infinity,alignment:.leading).padding(17)
+                        .foregroundStyle(.red.opacity(0.9)).background(palette.card,in:RoundedRectangle(cornerRadius:20))
+                }
             }.padding(22)
         }.foregroundStyle(palette.ink).background(palette.sheet.ignoresSafeArea())
+         .confirmationDialog("Сбросить приложение?",isPresented:$confirmReset,titleVisibility:.visible) {
+             Button("Удалить данные и начать заново",role:.destructive,action:resetApp)
+             Button("Отмена",role:.cancel) {}
+         } message: { Text("Дневник, идеи, черновик и звёзды будут удалены с этого устройства.") }
     }
     private var paletteSettings: some View {
         VStack(alignment:.leading,spacing:12) {
@@ -302,6 +401,7 @@ struct Studio: View {
     private var journalDays: [(key: Date, value: [Idea])] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let matches = book.ideas.filter { idea in
+            guard idea.section == section else { return false }
             let calendar = Calendar.current
             let dayMatches = dayFilter.map { calendar.isDate($0,inSameDayAs:idea.created) } ?? true
             let yearMatches = yearFilter.map { calendar.component(.year,from:idea.created) == $0 } ?? true
@@ -333,8 +433,7 @@ struct Studio: View {
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
                      .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:8))
                 }
-                Button { begin(idea) } label: { Label("Редактировать",systemImage:"pencil").frame(maxWidth:.infinity,minHeight:48) }
-                    .foregroundStyle(palette.accent)
+                ideaActions(idea)
             } else {
                 Button {
                     calendarDay = dayFilter ?? yearFilter.flatMap { year in
@@ -362,11 +461,14 @@ struct Studio: View {
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
                     }.padding(.horizontal,14).frame(minHeight:44).background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 }
+                Picker("Состояние идей",selection:$section) {
+                    ForEach(IdeaSection.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented)
                 ScrollView(showsIndicators:false) {
                     LazyVStack(alignment:.leading,spacing:12) {
                         let sections = journalDays
                         if sections.isEmpty {
-                            Text(search.isEmpty && (dayFilter != nil || yearFilter != nil) ? (dayFilter == nil ? "В этом году идей пока нет." : "В этот день идей пока нет.") : book.ideas.isEmpty ? "Здесь появятся твои идеи. Начни с первой записи." : "По этому запросу записей нет.")
+                            Text(emptyIdeasMessage)
                                 .foregroundStyle(palette.muted).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
@@ -383,6 +485,9 @@ struct Studio: View {
                                                 Text(idea.audio == nil ? "Текст" : "Голос")
                                                 Text("·")
                                                 Text(idea.created,style:.time)
+                                                if idea.section == .active, let date = idea.pinnedUntil, date > Date() {
+                                                    Image(systemName:"pin.fill").accessibilityLabel("Закреплена")
+                                                }
                                             }.font(.caption).foregroundStyle(palette.ink.opacity(0.7))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
                                                 .font(.system(.title3)).lineLimit(3)
@@ -404,19 +509,66 @@ struct Studio: View {
          .environment(\.locale,Locale(identifier:"ru"))
          .sheet(isPresented:$calendarOpen) {
              IdeaCalendar(selection:$calendarDay,
-                          recorded:Set(book.ideas.map { Calendar.current.startOfDay(for:$0.created) }),
+                          recorded:Set(book.ideas.filter { $0.section == section }.map { Calendar.current.startOfDay(for:$0.created) }),
                           startsWithYear:yearFilter != nil,
                           applyDay:{ dayFilter = calendarDay; yearFilter = nil; calendarOpen = false },
                           applyYear:{ yearFilter = $0; dayFilter = nil; calendarOpen = false },
                           reset:{ dayFilter = nil; yearFilter = nil; calendarOpen = false })
          }
     }
+    private var emptyIdeasMessage: String {
+        if !search.isEmpty || dayFilter != nil || yearFilter != nil { return "За выбранный период ничего не найдено." }
+        switch section {
+        case .active: return "Здесь появятся твои идеи. Начни с первой записи."
+        case .completed: return "Здесь будут идеи, которые ты выполнил."
+        case .archived: return "Архив пуст."
+        }
+    }
+
+    private func ideaActions(_ idea:Idea) -> some View {
+        VStack(spacing:8) {
+            if idea.section == .active {
+                Button {
+                    resolveIdea(idea.id) { $0.complete($1,at:Date()) }
+                } label: {
+                    Label("Выполнить · +\(Notebook.completionReward) ★",systemImage:"checkmark.circle")
+                }.buttonStyle(JournalPrimary())
+
+                if let until = idea.pinnedUntil, until > Date() {
+                    Label { Text(until,format:.dateTime.day().month(.wide).year()) } icon: { Image(systemName:"pin.fill") }
+                        .font(.subheadline).foregroundStyle(palette.muted)
+                        .accessibilityLabel("Закреплена до \(until.formatted(date:.long,time:.omitted))")
+                } else {
+                    Button { confirmPin = true } label: {
+                        Label("Закрепить на 30 дней · \(Notebook.pinPrice) ★",systemImage:"pin")
+                            .frame(minHeight:44)
+                    }.disabled(book.balance < Notebook.pinPrice)
+                     .opacity(book.balance < Notebook.pinPrice ? 0.45 : 1)
+                }
+            } else if idea.section == .archived {
+                Button("Вернуть в активные") { resolveIdea(idea.id) { $0.restore($1) } }
+                    .buttonStyle(JournalPrimary())
+            } else if let completedAt = idea.completedAt {
+                Label { Text(completedAt,format:.dateTime.day().month(.wide).year()) } icon: { Image(systemName:"checkmark.circle") }
+                    .foregroundStyle(palette.muted).accessibilityLabel("Выполнено \(completedAt.formatted(date:.long,time:.omitted))")
+            }
+            Button { begin(idea) } label: {
+                Label("Редактировать",systemImage:"pencil").frame(maxWidth:.infinity,minHeight:44)
+            }.foregroundStyle(palette.accent)
+        }.confirmationDialog("Закрепить идею?",isPresented:$confirmPin,titleVisibility:.visible) {
+            Button("Потратить \(Notebook.pinPrice) звёзд") { resolveIdea(idea.id) { $0.pin($1,at:Date()) } }
+            Button("Отмена",role:.cancel) {}
+        } message: { Text("Идея останется в активных 30 дней, даже если ты не будешь заходить.") }
+    }
+
     private var rewards: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Мои звёзды").font(.largeTitle.bold())
                 HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit()) }
-                Text("Одна звезда за мысль, ещё одна за описание от 80 символов и одна за текст от 200 символов. Дополняй запись позже — звёзды сохранятся.").foregroundStyle(palette.muted)
+                Text("За запись — от 1 до 3 звёзд. За выполненную идею — ещё \(Notebook.completionReward).")
+                Text("За \(Notebook.pinPrice) звёзд можно закрепить идею на 30 дней.")
+                Text("После 7 дней без входа незакреплённые идеи переходят в архив. Оттуда их можно вернуть.").foregroundStyle(palette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(26)
         }.padding(.top, 15).presentationBackground(palette.sheet)
     }
@@ -824,7 +976,7 @@ struct JournalSetup: View {
         VStack(spacing:0) {
             if stage != .intro { header }
             Spacer(minLength:4)
-            NotebookObject(cover:cover)
+            journalPreview
                 .scaleEffect(typing ? 0.53 : leaving && !reduced ? 1.19 : 1)
                 .frame(height:typing ? 150 : 280)
                 .animation(reduced ? nil : .easeInOut(duration:0.24),value:typing)
@@ -834,6 +986,14 @@ struct JournalSetup: View {
         }.padding(.bottom,16).foregroundStyle(palette.ink)
          .background(palette.sheet.ignoresSafeArea()).opacity(leaving ? 0 : 1)
          .buttonStyle(.plain).preferredColorScheme(.dark)
+    }
+
+    @ViewBuilder private var journalPreview: some View {
+        if stage == .cover || existing != nil {
+            JournalModel(cover:cover,onTap:nil).frame(width:236,height:280)
+        } else {
+            NotebookObject(cover:cover)
+        }
     }
 
     private var header: some View {
@@ -879,6 +1039,9 @@ struct JournalSetup: View {
                 PhotosPicker(selection:$selection,matching:.images) {
                     Label(loading ? "Загрузка…" : "Фото из галереи",systemImage:"photo").frame(minHeight:44)
                 }
+                if cover.photo != nil {
+                    Button("Убрать фото") { selection = nil; cover.photo = nil }.font(.footnote)
+                }
                 Button(existing == nil ? "Создать дневник" : "Сохранить обложку",action:complete)
                     .buttonStyle(JournalPrimary()).disabled(loading || leaving)
             }.padding(.horizontal,26)
@@ -886,11 +1049,9 @@ struct JournalSetup: View {
     }
 
     private func swatch(_ index: Int) -> some View {
-        let selected = cover.photo == nil && cover.shade == index
+        let selected = cover.shade == index
         return Button {
-            selection = nil
             cover.shade = index
-            cover.photo = nil
         } label: {
             Circle().fill(JournalCover.colors[index]).frame(width:35,height:35)
                 .padding(4).overlay { Circle().strokeBorder(selected ? Color.white : Color.clear,lineWidth:1) }
@@ -1239,7 +1400,7 @@ import SceneKit
 
 struct JournalModel: UIViewRepresentable {
     let cover: JournalCover
-    let onTap: () -> Void
+    var onTap: (() -> Void)? = nil
     @Environment(\.appPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduced
 
@@ -1262,9 +1423,26 @@ struct JournalModel: UIViewRepresentable {
         scene.rootNode.addChildNode(camera)
         view.pointOfView = camera
         scene.rootNode.addChildNode(context.coordinator.book)
+        let ambient = SCNNode()
+        ambient.light = SCNLight()
+        ambient.light?.type = .ambient
+        ambient.light?.intensity = 380
+        scene.rootNode.addChildNode(ambient)
+        let softbox = SCNNode()
+        softbox.light = SCNLight()
+        softbox.light?.type = .directional
+        softbox.light?.intensity = 780
+        softbox.eulerAngles = SCNVector3(-0.43,-0.48,0)
+        scene.rootNode.addChildNode(softbox)
+        let rim = SCNNode()
+        rim.light = SCNLight()
+        rim.light?.type = .directional
+        rim.light?.intensity = 470
+        rim.eulerAngles = SCNVector3(0.35,2.40,0)
+        scene.rootNode.addChildNode(rim)
         view.isAccessibilityElement = true
         view.accessibilityTraits = [.button]
-        view.accessibilityLabel = "Дневник, записать идею"
+        view.accessibilityLabel = "Дневник"
         let pan = UIPanGestureRecognizer(target:context.coordinator,action:#selector(Interaction.rotate(_:)))
         pan.maximumNumberOfTouches = 1
         let tap = UITapGestureRecognizer(target:context.coordinator,action:#selector(Interaction.open))
@@ -1277,6 +1455,8 @@ struct JournalModel: UIViewRepresentable {
     func updateUIView(_ view:SCNView,context:Context) {
         let controller = context.coordinator
         controller.openIdea = onTap
+        view.accessibilityTraits = onTap == nil ? [] : [.button]
+        view.accessibilityLabel = onTap == nil ? "Предпросмотр дневника" : "Дневник, записать идею"
         controller.reduced = reduced
         (view as? AccessibleBookView)?.openIdea = onTap
         guard controller.artwork != cover || controller.colors != palette else { return }
@@ -1313,6 +1493,25 @@ struct JournalModel: UIViewRepresentable {
 
         func rebuild(front:UIImage?, cloth:UIColor) {
             tilt.childNodes.forEach { $0.removeFromParentNode() }
+            if !JournalMesh.parts.isEmpty {
+                let colors: [UIColor] = [cloth,cloth,UIColor(white:0.57,alpha:1),
+                                        UIColor(white:0.79,alpha:1),UIColor(white:0.16,alpha:1),cloth]
+                for part in JournalMesh.parts {
+                    let material = SCNMaterial()
+                    material.lightingModel = .physicallyBased
+                    if part.kind == 0, let front { material.diffuse.contents = front }
+                    else { material.diffuse.contents = colors[part.kind] }
+                    material.roughness.contents = part.kind <= 1 ? 0.76 : 0.89
+                    if part.kind <= 1 {
+                        material.normal.contents = UIImage(named:"JournalGrain")
+                        material.normal.intensity = 0.16
+                    }
+                    let geometry = part.makeGeometry()
+                    geometry.materials = [material]
+                    tilt.addChildNode(SCNNode(geometry:geometry))
+                }
+                return
+            }
             let paper = pages()
             let exterior = SCNMaterial()
             exterior.diffuse.contents = cloth
@@ -1383,3 +1582,48 @@ struct JournalModel: UIViewRepresentable {
     }
 }
 
+
+
+// Mesh adapted from Pocket Journal by Innerscene, dedicated to the public domain under CC0.
+private struct JournalMesh {
+    var kind: Int
+    var vertexCount: Int
+    var indexCount: Int
+    var vertices: Data
+    var indices: Data
+
+    static let parts: [Self] = {
+        guard let data = NSDataAsset(name:"JournalMesh")?.data,
+              data.prefix(4) == Data("NB21".utf8) else { return [] }
+        var cursor = 4
+        func read() -> Int? {
+            guard cursor+4 <= data.count else { return nil }
+            let value = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset:cursor,as:UInt32.self) }
+            cursor += 4
+            return Int(UInt32(littleEndian:value))
+        }
+        guard read() == 6 else { return [] }
+        var result = [Self]()
+        for _ in 0..<6 {
+            guard let kind = read(), (0...5).contains(kind),
+                  let count = read(), let indices = read(), count > 0, indices > 0,
+                  indices.isMultiple(of:3) else { return [] }
+            let boundary = cursor+count*32
+            let end = boundary+indices*2
+            guard end <= data.count else { return [] }
+            result.append(Self(kind:kind,vertexCount:count,indexCount:indices,
+                               vertices:data.subdata(in:cursor..<boundary),indices:data.subdata(in:boundary..<end)))
+            cursor = end
+        }
+        return result
+    }()
+
+    func makeGeometry() -> SCNGeometry {
+        func source(_ semantic:SCNGeometrySource.Semantic,_ components:Int,_ offset:Int) -> SCNGeometrySource {
+            SCNGeometrySource(data:vertices,semantic:semantic,vectorCount:vertexCount,usesFloatComponents:true,
+                              componentsPerVector:components,bytesPerComponent:4,dataOffset:offset,dataStride:32)
+        }
+        let faces = SCNGeometryElement(data:indices,primitiveType:.triangles,primitiveCount:indexCount/3,bytesPerIndex:2)
+        return SCNGeometry(sources:[source(.vertex,3,0),source(.normal,3,12),source(.texcoord,2,24)],elements:[faces])
+    }
+}

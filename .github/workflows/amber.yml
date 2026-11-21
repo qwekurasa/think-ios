@@ -35,6 +35,34 @@ jobs:
           precondition(replay.receive("первая часть вторая часть",start:0,end:2.9,at:4,closing:true) == "первая часть вторая часть")
           SWIFT
           swift "$RUNNER_TEMP/dictation.swift"
+      - name: Check retention, pin spending and completion rewards
+        run: |
+          cat > "$RUNNER_TEMP/ideas.swift" <<'SWIFT'
+          import Foundation
+          enum Bloom: String, Codable { case daisy }
+          SWIFT
+          sed -n '/^struct Idea: Codable/,/^enum Page/{ /^enum Page/d; p; }' Think/ThinkApp.swift >> "$RUNNER_TEMP/ideas.swift"
+          cat >> "$RUNNER_TEMP/ideas.swift" <<'SWIFT'
+          let start = Date(timeIntervalSince1970: 1000000)
+          let idea = Idea(id:UUID(),text:"A",step:"",created:start,award:1)
+          let second = Idea(id:UUID(),text:"B",step:"",created:start,award:1)
+          let third = Idea(id:UUID(),text:"C",step:"",created:start,award:1)
+          let day = Notebook.day
+          var book = Notebook(ideas:[idea,second,third],balance:12)
+          book.resume(at:start)
+          precondition(book.pin(idea.id,at:start) != nil && book.balance == 0)
+          precondition(book.pin(idea.id,at:start) == nil)
+          precondition(book.complete(second.id,at:start) != nil && book.balance == 5)
+          precondition(book.complete(second.id,at:start) == nil)
+          book.resume(at:start+7*day)
+          precondition(book.ideas.map(\.section) == [.active,.completed,.archived])
+          book.resume(at:start+31*day)
+          precondition(book.ideas[0].section == .archived && book.ideas[1].section == .completed)
+          precondition(book.restore(third.id)?.section == .active)
+          let old = try JSONDecoder().decode(Notebook.self,from:Data(#"{"ideas":[],"balance":42,"cool":true}"#.utf8))
+          precondition(old.balance == 42 && old.lastSeen == nil)
+          SWIFT
+          swift "$RUNNER_TEMP/ideas.swift"
       - name: Build for iPhone
         run: |
           xcodebuild -project Think.xcodeproj -target Think -configuration Release -sdk iphoneos ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/iphone" build
