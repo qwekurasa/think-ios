@@ -556,7 +556,7 @@ struct Studio: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Button(action:stepBack) { {
+                Button(action:stepBack) {
                     Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }.accessibilityLabel("Назад")
                 Spacer()
