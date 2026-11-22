@@ -727,7 +727,7 @@ struct Studio: View {
 
     private var archive: some View {
         let sections = journalDays
-        VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: 14) {
             if detail != nil {
                 Button { detail = nil } label: {
                     Label("Все идеи",systemImage:"chevron.left").frame(minHeight:44)
