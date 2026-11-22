@@ -8,6 +8,34 @@ struct ThinkApp: App {
     var body: some Scene { WindowGroup { Studio() } }
 }
 
+struct IdeaAddition: Codable, Identifiable {
+    let id: UUID
+    let created: Date
+    let text: String
+}
+
+enum CoverFinish: String, Codable, CaseIterable, Identifiable {
+    case classic, linen, paper, embossed
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .classic: "Классика"
+        case .linen: "Лён"
+        case .paper: "Матовая бумага"
+        case .embossed: "Тиснение"
+        }
+    }
+    var price: Int {
+        switch self {
+        case .classic: 0
+        case .linen: 8
+        case .paper: 12
+        case .embossed: 18
+        }
+    }
+}
+
 struct Idea: Codable, Identifiable {
     let id: UUID
     var text: String
@@ -17,6 +45,8 @@ struct Idea: Codable, Identifiable {
     var flower: Bool? = nil
     var bloom: Bloom? = nil
     var decoration: Bloom? { bloom ?? (flower == true ? .daisy : nil) }
+    var additions: [IdeaAddition]? = nil
+    var bookmarked: Bool? = nil
     var award: Int
     var completedAt: Date? = nil
     var archivedAt: Date? = nil
@@ -31,6 +61,19 @@ struct Notebook: Codable {
     var ideas: [Idea] = []
     var balance = 0
     var lastSeen: Date? = nil
+
+    var ownedFinishes: Set<CoverFinish>? = nil
+
+    func owns(_ finish:CoverFinish) -> Bool {
+        finish == .classic || ownedFinishes?.contains(finish) == true
+    }
+
+    mutating func unlock(_ finish:CoverFinish) -> Bool {
+        guard !owns(finish), balance >= finish.price else { return false }
+        ownedFinishes = (ownedFinishes ?? []).union([finish])
+        balance -= finish.price
+        return true
+    }
 
     static let pinPrice = 12
     static let completionReward = 5
@@ -103,6 +146,14 @@ struct Studio: View {
     @State private var calendarDay = Date()
     @State private var calendarOpen = false
     @State private var detail: Idea?
+    @State private var bookmarksOnly = false
+    @State private var pastPage: Idea?
+    @State private var lastPastPage: UUID?
+    @State private var noPastPages = false
+    @State private var pendingPastAddition: Idea?
+    @State private var additionTarget: Idea?
+    @State private var additionText = ""
+    @FocusState private var addingText: Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var storageError = false
     @State private var notebookLoaded = false
@@ -111,7 +162,8 @@ struct Studio: View {
     var body: some View {
         ZStack {
             if cover == nil || editingCover {
-                JournalSetup(existing:cover,onCancel:{ editingCover = false }) { newCover in
+                JournalSetup(existing:cover, balance:book.balance, ownedFinishes:book.ownedFinishes ?? [],
+                             unlock:unlockFinish,onCancel:{ editingCover = false }) { newCover in
                     guard let encoded = try? JSONEncoder().encode(newCover) else { return }
                     coverData = encoded
                     cover = newCover
@@ -159,6 +211,17 @@ struct Studio: View {
             Button("Закрыть") { voice.error = nil }
         } message: { Text(voice.error ?? "") }
         .sheet(isPresented:$showFlowers) { flowers }
+        .sheet(item:$pastPage,onDismiss:{
+            if let idea = pendingPastAddition {
+                pendingPastAddition = nil
+                additionText = ""
+                additionTarget = idea
+            }
+        }) { past in previousPageSheet(past) }
+        .sheet(item:$additionTarget) { idea in additionSheet(idea) }
+        .alert("Из прошлых страниц",isPresented:$noPastPages) {
+            Button("Понятно",role:.cancel) {}
+        } message: { Text("Здесь будут появляться идеи, записанные в предыдущие дни.") }
         .sheet(isPresented: $showRewards) {
             rewards.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
         }
@@ -190,6 +253,7 @@ struct Studio: View {
         book = Notebook(); cover = nil; page = .spark; editingCover = false; storageError = false
         editing = nil; detail = nil; text = ""; bloom = nil
         search = ""; dayFilter = nil; yearFilter = nil; section = .active
+        bookmarksOnly = false; lastPastPage = nil; additionText = ""
     }
 
     private func resolveIdea(_ id:UUID,change:(inout Notebook,UUID) -> Idea?) {
@@ -226,7 +290,7 @@ struct Studio: View {
         if editing == nil { draft = ""; draftStep = ""; draftFlower = false; draftBloom = "" }
         dismissRequest += 1
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if editing != nil { detail = idea } else { detail = nil; section = .active; search = ""; dayFilter = nil; yearFilter = nil }
+        if editing != nil { detail = idea } else { detail = nil; section = .active; bookmarksOnly = false; search = ""; dayFilter = nil; yearFilter = nil }
         page = .collection
     }
     private var capture: some View {
@@ -237,14 +301,18 @@ struct Studio: View {
             }.foregroundStyle(palette.ink).frame(height:52)
             Spacer(minLength:4)
             if let cover {
-                JournalModel(cover:cover) {
+                JournalModel(cover:cover,onTap:{
                     UIImpactFeedbackGenerator(style:.soft).impactOccurred()
                     begin()
-                }.frame(maxWidth:330).frame(height:344)
+                },onHold:openPastPage).frame(maxWidth:330).frame(height:344)
             }
             Text("запиши идею пока не забыл")
                 .font(.subheadline.monospaced()).foregroundStyle(palette.muted).padding(.horizontal,20)
                 .multilineTextAlignment(.center)
+            Button(action:openPastPage) {
+                Label("Из прошлых страниц",systemImage:"book")
+                    .font(.footnote.monospaced()).frame(minHeight:44)
+            }.foregroundStyle(palette.ink.opacity(0.76))
             Spacer(minLength:12)
         }.frame(maxWidth:.infinity)
          .background(palette.sheet.ignoresSafeArea())
@@ -403,14 +471,101 @@ struct Studio: View {
         }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(palette.ink)
          .background(palette.sheet.ignoresSafeArea())
     }
+    private func unlockFinish(_ finish:CoverFinish) -> Bool {
+        var next = book
+        if next.owns(finish) { return true }
+        return next.unlock(finish) && persist(next)
+    }
+
+    private func openPastPage() {
+        let today = Calendar.current.startOfDay(for:Date())
+        let earlier = book.ideas.filter { $0.created < today }
+        guard let idea = (earlier.filter { $0.id != lastPastPage }.randomElement() ?? earlier.first) else {
+            noPastPages = true
+            return
+        }
+        lastPastPage = idea.id
+        pastPage = idea
+    }
+
+    private func previousPageSheet(_ idea:Idea) -> some View {
+        VStack(alignment:.leading,spacing:16) {
+            HStack {
+                Text("Из прошлых страниц").font(.headline.monospaced())
+                Spacer()
+                Button { pastPage = nil } label: {
+                    Image(systemName:"xmark").frame(width:44,height:44)
+                }.accessibilityLabel("Закрыть")
+            }
+            Text(idea.created,format:.dateTime.day().month(.wide).year())
+                .font(.caption.monospaced()).foregroundStyle(palette.muted)
+            ScrollView {
+                Text(idea.text.isEmpty ? idea.step : idea.text)
+                    .font(.title3.monospaced()).frame(maxWidth:.infinity,alignment:.leading)
+            }
+            Button("Дополнить") {
+                detail = idea
+                section = idea.section
+                page = .collection
+                pendingPastAddition = idea
+                pastPage = nil
+            }.buttonStyle(JournalPrimary())
+        }.padding(24).presentationDetents([.medium,.large])
+         .presentationBackground(palette.sheet).foregroundStyle(palette.ink)
+         .environment(\.locale,Locale(identifier:"ru"))
+    }
+
+    private func additionSheet(_ idea:Idea) -> some View {
+        VStack(alignment:.leading,spacing:14) {
+            HStack {
+                Button("Отмена") { additionTarget = nil }.frame(minHeight:44)
+                Spacer()
+                Button("Сохранить") { saveAddition(for:idea.id) }
+                    .frame(minHeight:44)
+                    .disabled(additionText.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
+            }
+            Text("Дополнение").font(.title2.monospaced())
+            Text(Date(),format:.dateTime.day().month(.wide).year())
+                .font(.caption.monospaced()).foregroundStyle(palette.muted)
+            TextEditor(text:$additionText)
+                .font(.body.monospaced()).scrollContentBackground(.hidden).padding(8)
+                .background(palette.card,in:RoundedRectangle(cornerRadius:12))
+                .focused($addingText).accessibilityLabel("Текст дополнения")
+        }.padding(22).foregroundStyle(palette.ink).presentationBackground(palette.sheet)
+         .environment(\.locale,Locale(identifier:"ru"))
+         .onAppear { addingText = true }
+    }
+
+    private func saveAddition(for id:UUID) {
+        let words = additionText.trimmingCharacters(in:.whitespacesAndNewlines)
+        var next = book
+        guard !words.isEmpty, let index = next.ideas.firstIndex(where:{ $0.id == id }) else { return }
+        next.ideas[index].additions = (next.ideas[index].additions ?? []) +
+            [IdeaAddition(id:UUID(),created:Date(),text:words)]
+        guard persist(next) else { return }
+        detail = next.ideas[index]
+        additionTarget = nil
+        additionText = ""
+    }
+
+    private func toggleBookmark(_ idea:Idea) {
+        var next = book
+        guard let index = next.ideas.firstIndex(where:{ $0.id == idea.id }) else { return }
+        next.ideas[index].bookmarked = next.ideas[index].bookmarked != true
+        if persist(next) { detail = next.ideas[index] }
+    }
+
+    private var visibleIdeas: [Idea] {
+        book.ideas.filter { bookmarksOnly ? $0.bookmarked == true : $0.section == section }
+    }
+
     private var journalDays: [(key: Date, value: [Idea])] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = book.ideas.filter { idea in
-            guard idea.section == section else { return false }
+        let matches = visibleIdeas.filter { idea in
             let calendar = Calendar.current
             let dayMatches = dayFilter.map { calendar.isDate($0,inSameDayAs:idea.created) } ?? true
             let yearMatches = yearFilter.map { calendar.component(.year,from:idea.created) == $0 } ?? true
-            return dayMatches && yearMatches && (query.isEmpty || [idea.text, idea.step, idea.audio == nil ? "" : "Голосовая запись"]
+            return dayMatches && yearMatches && (query.isEmpty || ([idea.text, idea.step, idea.audio == nil ? "" : "Голосовая запись"] + (idea.additions ?? []).map(\.text))
                 .contains { $0.localizedCaseInsensitiveContains(query) })
         }
         return Dictionary(grouping: matches.sorted { $0.created > $1.created }) {
@@ -425,7 +580,14 @@ struct Studio: View {
                 }.foregroundStyle(palette.muted)
             }
             if let idea = detail {
-                Text("Идея").font(.largeTitle.bold().monospaced())
+                HStack {
+                    Text("Идея").font(.largeTitle.bold().monospaced())
+                    Spacer()
+                    Button { toggleBookmark(idea) } label: {
+                        Image(systemName:idea.bookmarked == true ? "bookmark.fill" : "bookmark")
+                            .frame(width:44,height:44)
+                    }.accessibilityLabel(idea.bookmarked == true ? "Убрать закладку" : "Добавить закладку")
+                }
                 ScrollView(showsIndicators:false) {
                     VStack(alignment: .leading, spacing: 20) {
                         if let decoration = idea.decoration { Flower(kind:decoration).frame(width:42,height:58).frame(maxWidth:.infinity) }
@@ -435,11 +597,24 @@ struct Studio: View {
                         Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
                             .font(.system(.title3,design:.monospaced)).textSelection(.enabled)
                         if !idea.step.isEmpty { Text(idea.step) }
+                        ForEach(idea.additions ?? []) { addition in
+                            Divider()
+                            Text(addition.created,format:.dateTime.day().month(.wide).year().hour().minute())
+                                .font(.caption.monospaced()).foregroundStyle(palette.muted)
+                            Text(addition.text).font(.title3.monospaced()).textSelection(.enabled)
+                        }
+                        Button {
+                            additionText = ""
+                            additionTarget = idea
+                        } label: {
+                            Label("Дополнить",systemImage:"plus").frame(minHeight:44)
+                        }.foregroundStyle(palette.accent)
                     }.frame(maxWidth:.infinity,alignment:.leading).padding(22)
                      .foregroundStyle(palette.ink).background(palette.card,in:RoundedRectangle(cornerRadius:8))
                 }
                 ideaActions(idea)
             } else {
+                HStack {
                 Button {
                     calendarDay = dayFilter ?? yearFilter.flatMap { year in
                         Calendar.current.date(from:DateComponents(year:year,month:1,day:1))
@@ -450,6 +625,17 @@ struct Studio: View {
                         .font(.subheadline.weight(.medium).monospaced())
                         .frame(minHeight:44)
                 }.foregroundStyle(palette.accent).frame(maxWidth:.infinity)
+                    Button {
+                        bookmarksOnly.toggle()
+                        dayFilter = nil
+                        yearFilter = nil
+                    } label: {
+                        Image(systemName:bookmarksOnly ? "bookmark.fill" : "bookmark")
+                            .frame(width:44,height:44)
+                            .background(palette.card,in:RoundedRectangle(cornerRadius:9))
+                    }.accessibilityLabel(bookmarksOnly ? "Показать все идеи" : "Показать закладки")
+                     .accessibilityAddTraits(bookmarksOnly ? .isSelected : [])
+                }
                 if let dayFilter {
                     Button { self.dayFilter = nil } label: {
                         HStack { Text(dayFilter,format:.dateTime.day().month(.wide).year()); Image(systemName:"xmark") }
@@ -466,20 +652,24 @@ struct Studio: View {
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
                     }.padding(.horizontal,14).frame(minHeight:44).background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 }
-                HStack(spacing:4) {
-                    ForEach(IdeaSection.allCases) { option in
-                        Button { section = option } label: {
-                            Text(option.rawValue)
-                                .font(.footnote.weight(section == option ? .semibold : .regular).monospaced())
-                                .lineLimit(1).minimumScaleFactor(0.75)
-                                .padding(.horizontal,4).frame(maxWidth:.infinity,minHeight:44)
-                                .background(palette.accent.opacity(section == option ? 0.18 : 0),
-                                            in:RoundedRectangle(cornerRadius:8))
-                                .contentShape(Rectangle())
-                        }.accessibilityAddTraits(section == option ? .isSelected : [])
-                    }
-                }.padding(4).background(palette.card,in:RoundedRectangle(cornerRadius:12))
-                 .accessibilityElement(children:.contain).accessibilityLabel("Состояние идей")
+                if bookmarksOnly {
+                    Text("Закладки").font(.headline.monospaced())
+                } else {
+                    HStack(spacing:4) {
+                        ForEach(IdeaSection.allCases) { option in
+                            Button { section = option } label: {
+                                Text(option.rawValue)
+                                    .font(.footnote.weight(section == option ? .semibold : .regular).monospaced())
+                                    .lineLimit(1).minimumScaleFactor(0.75)
+                                    .padding(.horizontal,4).frame(maxWidth:.infinity,minHeight:44)
+                                    .background(palette.accent.opacity(section == option ? 0.18 : 0),
+                                                in:RoundedRectangle(cornerRadius:8))
+                                    .contentShape(Rectangle())
+                            }.accessibilityAddTraits(section == option ? .isSelected : [])
+                        }
+                    }.padding(4).background(palette.card,in:RoundedRectangle(cornerRadius:12))
+                     .accessibilityElement(children:.contain).accessibilityLabel("Состояние идей")
+                }
                 ScrollView(showsIndicators:false) {
                     LazyVStack(alignment:.leading,spacing:12) {
                         let sections = journalDays
@@ -501,6 +691,7 @@ struct Studio: View {
                                                 Text(idea.audio == nil ? "Текст" : "Голос")
                                                 Text("·")
                                                 Text(idea.created,style:.time)
+                                                if idea.bookmarked == true { Image(systemName:"bookmark.fill").accessibilityLabel("В закладках") }
                                                 if idea.section == .active, let date = idea.pinnedUntil, date > Date() {
                                                     Image(systemName:"pin.fill").accessibilityLabel("Закреплена")
                                                 }
@@ -524,7 +715,7 @@ struct Studio: View {
          .environment(\.locale,Locale(identifier:"ru"))
          .sheet(isPresented:$calendarOpen) {
              IdeaCalendar(selection:$calendarDay,
-                          recorded:Set(book.ideas.filter { $0.section == section }.map { Calendar.current.startOfDay(for:$0.created) }),
+                          recorded:Set(visibleIdeas.map { Calendar.current.startOfDay(for:$0.created) }),
                           startsWithYear:yearFilter != nil,
                           applyDay:{ dayFilter = calendarDay; yearFilter = nil; calendarOpen = false },
                           applyYear:{ yearFilter = $0; dayFilter = nil; calendarOpen = false },
@@ -533,6 +724,7 @@ struct Studio: View {
     }
     private var emptyIdeasMessage: String {
         if !search.isEmpty || dayFilter != nil || yearFilter != nil { return "За выбранный период ничего не найдено." }
+        if bookmarksOnly { return "Отмечай идеи ленточкой, чтобы быстро к ним вернуться." }
         switch section {
         case .active: return "Здесь появятся твои идеи. Начни с первой записи."
         case .completed: return "Здесь будут идеи, которые ты выполнил."
@@ -583,6 +775,7 @@ struct Studio: View {
                 HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit().monospaced()) }
                 Text("За запись — от 1 до 3 звёзд. За выполненную идею — ещё \(Notebook.completionReward).")
                 Text("За \(Notebook.pinPrice) звёзд можно закрепить идею на 30 дней.")
+                Text("Лён, матовая бумага и тиснение открываются за звёзды в настройках обложки.")
                 Text("После 7 дней без входа незакреплённые идеи переходят в архив. Оттуда их можно вернуть.").foregroundStyle(palette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(26)
         }.padding(.top, 15).presentationBackground(palette.sheet)
@@ -870,6 +1063,8 @@ struct JournalCover: Codable, Equatable {
     var title = ""
     var shade = 0
     var photo: Data?
+    var finish: CoverFinish? = nil
+    var surface: CoverFinish { finish ?? .classic }
 
     static let colors: [Color] = [
         Color(red:0.28,green:0.28,blue:0.30), Color(red:0.37,green:0.22,blue:0.22),
@@ -888,6 +1083,16 @@ struct NotebookFace: View {
             if let data = cover.photo, let photo = UIImage(data:data) {
                 Image(uiImage:photo).resizable().scaledToFill().frame(width:182,height:258).clipped()
             }
+            coverGrain
+            if cover.surface == .embossed {
+                RoundedRectangle(cornerRadius:8).strokeBorder(.black.opacity(0.38),lineWidth:1.5)
+                    .padding(11).offset(y:1)
+                RoundedRectangle(cornerRadius:8).strokeBorder(.white.opacity(0.29),lineWidth:1)
+                    .padding(11)
+                SparkShape().stroke(.white.opacity(0.32),lineWidth:0.7)
+                    .frame(width:25,height:25).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.bottom)
+                    .padding(.bottom,24)
+            }
             LinearGradient(colors:[.white.opacity(0.09),.clear,.black.opacity(0.13)],
                            startPoint:.topLeading,endPoint:.bottomTrailing)
             if !cover.title.isEmpty {
@@ -899,6 +1104,34 @@ struct NotebookFace: View {
         }.frame(width:182,height:258)
          .clipShape(RoundedRectangle(cornerRadius:5)).overlay { RoundedRectangle(cornerRadius:5).strokeBorder(.white.opacity(0.16)) }
     }
+
+    private var coverGrain: some View {
+        Canvas { context,size in
+            var texture = Path()
+            switch cover.surface {
+            case .linen:
+                for x in stride(from:0.0,to:size.width,by:2.1) {
+                    texture.move(to:CGPoint(x:x,y:0))
+                    texture.addLine(to:CGPoint(x:x+0.6,y:size.height))
+                }
+                for y in stride(from:0.0,to:size.height,by:2.9) {
+                    texture.move(to:CGPoint(x:0,y:y))
+                    texture.addLine(to:CGPoint(x:size.width,y:y+0.3))
+                }
+                context.stroke(texture,with:.color(.white.opacity(0.15)),lineWidth:0.55)
+                context.translateBy(x:0.7,y:0.7)
+                context.stroke(texture,with:.color(.black.opacity(0.20)),lineWidth:0.55)
+            case .paper:
+                for i in 0..<2100 {
+                    let x = Double((i * 83) % 997) / 997 * size.width
+                    let y = Double((i * 149) % 991) / 991 * size.height
+                    texture.addEllipse(in:CGRect(x:x,y:y,width:0.8,height:0.55))
+                }
+                context.fill(texture,with:.color(.white.opacity(0.22)))
+            case .classic,.embossed: break
+            }
+        }.accessibilityHidden(true)
+    }
 }
 
 enum CoverStage { case intro, title, cover }
@@ -906,6 +1139,9 @@ enum CoverStage { case intro, title, cover }
 struct JournalSetup: View {
     @Environment(\.appPalette) private var palette
     let existing: JournalCover?
+    let balance: Int
+    let ownedFinishes: Set<CoverFinish>
+    let unlock: (CoverFinish) -> Bool
     let onCancel: () -> Void
     let onSave: (JournalCover) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduced
@@ -914,12 +1150,20 @@ struct JournalSetup: View {
     @State private var selection: PhotosPickerItem?
     @State private var loading = false
     @State private var photoError = false
+    @State private var finishesOpen = false
+    @State private var previewFinish: CoverFinish = .classic
+    @State private var purchaseConfirmation = false
+    @State private var unlockedHere: Set<CoverFinish> = []
     @State private var leaving = false
     @State private var promptVisible = false
     @FocusState private var typing: Bool
 
-    init(existing: JournalCover?, onCancel: @escaping () -> Void, onSave: @escaping (JournalCover) -> Void) {
+    init(existing: JournalCover?, balance:Int, ownedFinishes:Set<CoverFinish>, unlock:@escaping (CoverFinish) -> Bool,
+         onCancel: @escaping () -> Void, onSave: @escaping (JournalCover) -> Void) {
         self.existing = existing
+        self.balance = balance
+        self.ownedFinishes = ownedFinishes
+        self.unlock = unlock
         self.onCancel = onCancel
         self.onSave = onSave
         _stage = State(initialValue: existing == nil ? .intro : .title)
@@ -930,6 +1174,7 @@ struct JournalSetup: View {
         content
             .task { await revealPrompt() }
             .task(id:selection) { await readPhoto() }
+            .sheet(isPresented:$finishesOpen) { finishPicker }
             .alert("Фото не открылось",isPresented:$photoError) { Button("Закрыть",role:.cancel) {} }
     }
 
@@ -999,10 +1244,70 @@ struct JournalSetup: View {
                 if cover.photo != nil {
                     Button("Убрать фото") { selection = nil; cover.photo = nil }.font(.footnote.monospaced())
                 }
+                if existing != nil {
+                    Button {
+                        previewFinish = cover.surface
+                        finishesOpen = true
+                    } label: {
+                        Label("Фактура · \(cover.surface.title)",systemImage:"square.grid.3x3")
+                            .font(.subheadline.monospaced()).frame(minHeight:44)
+                    }
+                }
                 Button(existing == nil ? "Создать дневник" : "Сохранить обложку",action:complete)
                     .buttonStyle(JournalPrimary()).disabled(loading || leaving)
             }.padding(.horizontal,26)
         }
+    }
+
+    private var finishPicker: some View {
+        var preview = cover
+        preview.finish = previewFinish
+        let owned = previewFinish == .classic || ownedFinishes.contains(previewFinish) || unlockedHere.contains(previewFinish)
+        return ScrollView {
+            VStack(spacing:12) {
+                HStack {
+                    Text("Фактура обложки").font(.headline.monospaced())
+                    Spacer()
+                    Text("\(balance) ★").monospacedDigit()
+                }
+                JournalModel(cover:preview).frame(width:190,height:205)
+                ForEach(CoverFinish.allCases) { finish in
+                    Button {
+                        previewFinish = finish
+                    } label: {
+                        HStack {
+                            Text(finish.title)
+                            Spacer()
+                            if finish != .classic && !ownedFinishes.contains(finish) && !unlockedHere.contains(finish) {
+                                Text("\(finish.price) ★").monospacedDigit()
+                            } else if finish == cover.surface {
+                                Image(systemName:"checkmark")
+                            }
+                        }.padding(.horizontal,12).frame(minHeight:44)
+                         .background(previewFinish == finish ? palette.card : .clear,in:RoundedRectangle(cornerRadius:8))
+                    }.accessibilityAddTraits(previewFinish == finish ? .isSelected : [])
+                }
+                Button(owned ? "Выбрать" : "Открыть за \(previewFinish.price) ★") {
+                    if owned { applyFinish() } else { purchaseConfirmation = true }
+                }.buttonStyle(JournalPrimary()).disabled(!owned && balance < previewFinish.price)
+                if !owned && balance < previewFinish.price {
+                    Text("Не хватает \(previewFinish.price - balance) ★").font(.caption.monospaced())
+                }
+            }.padding(22)
+        }.presentationBackground(palette.sheet).foregroundStyle(palette.ink)
+         .confirmationDialog("Открыть фактуру?",isPresented:$purchaseConfirmation,titleVisibility:.visible) {
+             Button("Потратить \(previewFinish.price) ★") {
+                 guard unlock(previewFinish) else { return }
+                 unlockedHere.insert(previewFinish)
+                 applyFinish()
+             }
+             Button("Отмена",role:.cancel) {}
+         }
+    }
+
+    private func applyFinish() {
+        cover.finish = previewFinish
+        finishesOpen = false
     }
 
     private func swatch(_ index: Int) -> some View {
@@ -1393,6 +1698,7 @@ import SceneKit
 struct JournalModel: UIViewRepresentable {
     let cover: JournalCover
     var onTap: (() -> Void)? = nil
+    var onHold: (() -> Void)? = nil
     @Environment(\.appPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduced
 
@@ -1439,7 +1745,12 @@ struct JournalModel: UIViewRepresentable {
         pan.maximumNumberOfTouches = 1
         let tap = UITapGestureRecognizer(target:context.coordinator,action:#selector(Interaction.open))
         tap.require(toFail:pan)
+        let hold = UILongPressGestureRecognizer(target:context.coordinator,action:#selector(Interaction.hold(_:)))
+        hold.minimumPressDuration = 0.55
+        hold.allowableMovement = 12
+        tap.require(toFail:hold)
         view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(hold)
         view.addGestureRecognizer(tap)
         return view
     }
@@ -1447,17 +1758,21 @@ struct JournalModel: UIViewRepresentable {
     func updateUIView(_ view:SCNView,context:Context) {
         let controller = context.coordinator
         controller.openIdea = onTap
+        controller.openPast = onHold
         view.accessibilityTraits = onTap == nil ? [] : [.button]
         view.accessibilityLabel = onTap == nil ? "Предпросмотр дневника" : "Дневник, записать идею"
         controller.reduced = reduced
         (view as? AccessibleBookView)?.openIdea = onTap
+        view.accessibilityCustomActions = onHold.map { action in
+            [UIAccessibilityCustomAction(name:"Из прошлых страниц",actionHandler:{ _ in action(); return true })]
+        }
         guard controller.artwork != cover || controller.colors != palette else { return }
         controller.artwork = cover
         controller.colors = palette
         let cloth = UIColor(JournalCover.colors[cover.shade])
         let renderer = ImageRenderer(content:NotebookFace(cover:cover).environment(\.appPalette,palette))
         renderer.scale = 2.5
-        controller.rebuild(front:renderer.uiImage,cloth:cloth,hasPhoto:cover.photo != nil)
+        controller.rebuild(front:renderer.uiImage,cloth:cloth,hasPhoto:cover.photo != nil,finish:cover.surface)
     }
 
     final class AccessibleBookView: SCNView {
@@ -1475,6 +1790,7 @@ struct JournalModel: UIViewRepresentable {
         var colors: AppPalette?
         var reduced = false
         var openIdea: (() -> Void)?
+        var openPast: (() -> Void)?
 
         override init() {
             super.init()
@@ -1483,7 +1799,7 @@ struct JournalModel: UIViewRepresentable {
             book.addChildNode(tilt)
         }
 
-        func rebuild(front:UIImage?, cloth:UIColor, hasPhoto:Bool) {
+        func rebuild(front:UIImage?, cloth:UIColor, hasPhoto:Bool, finish:CoverFinish) {
             tilt.childNodes.forEach { $0.removeFromParentNode() }
             if !JournalMesh.parts.isEmpty {
                 let colors: [UIColor] = [cloth,cloth,UIColor(white:0.57,alpha:1),
@@ -1493,10 +1809,12 @@ struct JournalModel: UIViewRepresentable {
                     material.lightingModel = .physicallyBased
                     if part.kind == 0, let front { material.diffuse.contents = front }
                     else { material.diffuse.contents = colors[part.kind] }
-                    material.roughness.contents = part.kind <= 1 ? 0.76 : 0.89
+                    let coverRoughness: Double = finish == .embossed ? 0.57 : finish == .paper ? 0.96 : 0.76
+                    material.roughness.contents = part.kind <= 1 ? coverRoughness : 0.89
                     if part.kind <= 1 {
                         material.normal.contents = UIImage(named:"JournalGrain")
-                        material.normal.intensity = part.kind == 0 && hasPhoto ? 0.035 : 0.08
+                        let strength: CGFloat = finish == .linen ? 0.17 : finish == .paper ? 0.04 : 0.08
+                        material.normal.intensity = part.kind == 0 && hasPhoto ? strength * 0.45 : strength
                     }
                     let geometry = part.makeGeometry()
                     geometry.materials = [material]
@@ -1546,6 +1864,10 @@ struct JournalModel: UIViewRepresentable {
         }
 
         @objc func open() { openIdea?() }
+
+        @objc func hold(_ gesture:UILongPressGestureRecognizer) {
+            if gesture.state == .began { openPast?() }
+        }
 
         @objc func rotate(_ gesture:UIPanGestureRecognizer) {
             let delta = gesture.translation(in:gesture.view)
