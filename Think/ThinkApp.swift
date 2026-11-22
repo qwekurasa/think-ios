@@ -317,30 +317,62 @@ struct Studio: View {
 
     private var menu: some View {
         HStack(spacing:4) {
-            tab(.spark, "Главная", "book.closed")
-            tab(.collection, "Мои идеи", "books.vertical")
-            tab(.settings, "Настройки", "slider.horizontal.3")
-        }.padding(.horizontal,16).padding(.top,8).padding(.bottom,4)
+            menuTab(.spark, title:"Главная") {
+                SparkShape().fill(palette.ink)
+                    .frame(width:25,height:25)
+                    .opacity(page == .spark ? 1 : 0.62)
+            }
+            menuTab(.collection, title:"Мои идеи") {
+                Image(systemName:"books.vertical")
+                    .font(.system(size:22,weight:page == .collection ? .semibold : .regular))
+                    .foregroundStyle(palette.ink.opacity(page == .collection ? 1 : 0.62))
+            }
+            Button {
+                showRewards = true
+            } label: {
+                HStack(spacing:4) {
+                    Image(systemName:"star.fill").font(.system(size:9,weight:.semibold))
+                    Text(book.balance,format:.number).font(.footnote.weight(.semibold).monospaced())
+                        .lineLimit(1).minimumScaleFactor(0.65)
+                }
+                .padding(.horizontal,7).frame(minWidth:34,minHeight:32)
+                .foregroundStyle(palette.sheet)
+                .background(palette.ink,in:RoundedRectangle(cornerRadius:6))
+                .padding(.horizontal,2)
+                .frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle())
+            }.accessibilityLabel("Звёзды").accessibilityValue(Text(book.balance,format:.number))
+            menuTab(.settings, title:"Профиль и настройки") {
+                Text(profileInitial).font(.footnote.weight(.medium).monospaced())
+                    .lineLimit(1).minimumScaleFactor(0.65)
+                    .foregroundStyle(palette.ink)
+                    .frame(width:34,height:34)
+                    .background(palette.card,in:Circle())
+                    .overlay {
+                        Circle().strokeBorder(palette.ink.opacity(page == .settings ? 0.65 : 0.12))
+                    }
+            }
+        }.padding(.horizontal,18).padding(.vertical,5)
          .background(palette.sheet.ignoresSafeArea(edges:.bottom))
-         .overlay(alignment:.top) { Rectangle().fill(.primary.opacity(0.09)).frame(height:1) }
     }
 
-    private func tab(_ tab: Page, _ title: String, _ icon: String) -> some View {
+    private var profileInitial: String {
+        guard let initial = cover?.title.first(where: { $0.isLetter || $0.isNumber }) else { return "?" }
+        return String(initial).uppercased()
+    }
+
+    private func menuTab<Icon: View>(_ tab:Page,title:String,@ViewBuilder icon:() -> Icon) -> some View {
         Button {
             if tab != page { detail = nil; page = tab }
         } label: {
-            VStack(spacing:4) {
-                Image(systemName:icon).font(.system(size:19,weight:page == tab ? .semibold : .regular))
-                Text(title).font(.caption2.weight(page == tab ? .semibold : .regular).monospaced()).lineLimit(1)
-            }.foregroundStyle(page == tab ? palette.ink : palette.muted)
-             .frame(maxWidth:.infinity,minHeight:49).contentShape(Rectangle())
-        }.accessibilityAddTraits(page == tab ? .isSelected : [])
+            icon().frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle())
+        }.accessibilityLabel(title)
+         .accessibilityAddTraits(page == tab ? .isSelected : [])
     }
 
     private var settings: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:22) {
-                Text("Настройки").font(.largeTitle.bold().monospaced())
+                Text("Профиль и настройки").font(.title2.bold().monospaced())
                 if let cover {
                     Button { editingCover = true } label: {
                         HStack(spacing:16) {
