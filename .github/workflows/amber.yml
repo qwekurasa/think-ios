@@ -54,7 +54,7 @@ jobs:
           import Foundation
           enum Bloom: String, Codable { case daisy }
           SWIFT
-          sed -n '/^struct Idea: Codable/,/^enum Page/{ /^enum Page/d; p; }' Think/ThinkApp.swift >> "$RUNNER_TEMP/ideas.swift"
+          sed -n '/^struct IdeaAddition: Codable/,/^enum Page/{ /^enum Page/d; p; }' Think/ThinkApp.swift >> "$RUNNER_TEMP/ideas.swift"
           cat >> "$RUNNER_TEMP/ideas.swift" <<'SWIFT'
           let start = Date(timeIntervalSince1970: 1000000)
           let idea = Idea(id:UUID(),text:"A",step:"",created:start,award:1)
@@ -73,7 +73,21 @@ jobs:
           precondition(book.ideas[0].section == .archived && book.ideas[1].section == .completed)
           precondition(book.restore(third.id)?.section == .active)
           let old = try JSONDecoder().decode(Notebook.self,from:Data(#"{"ideas":[],"balance":42,"cool":true}"#.utf8))
-          precondition(old.balance == 42 && old.lastSeen == nil)
+          precondition(old.balance == 42 && old.lastSeen == nil && old.owns(.classic))
+          var finishes = Notebook(balance:12)
+          precondition(!finishes.unlock(.embossed) && finishes.balance == 12)
+          precondition(finishes.unlock(.linen) && finishes.balance == 4)
+          precondition(!finishes.unlock(.linen) && finishes.balance == 4)
+          let savedFinishes = try JSONDecoder().decode(Notebook.self,from:JSONEncoder().encode(finishes))
+          precondition(savedFinishes.owns(.linen) && savedFinishes.balance == 4)
+          var noted = idea
+          noted.bookmarked = true
+          noted.additions = [IdeaAddition(id:UUID(),created:start+day,text:"После")]
+          let savedIdea = try JSONDecoder().decode(Idea.self,from:JSONEncoder().encode(noted))
+          precondition(savedIdea.text == "A" && savedIdea.bookmarked == true)
+          precondition(savedIdea.additions?.first?.text == "После" && savedIdea.additions?.first?.created == start+day)
+          let legacy = try JSONDecoder().decode(Idea.self,from:JSONEncoder().encode(idea))
+          precondition(legacy.additions == nil && legacy.bookmarked == nil)
           SWIFT
           swift "$RUNNER_TEMP/ideas.swift"
       - name: Build for iPhone
