@@ -1084,8 +1084,10 @@ struct IdeaCalendar: View {
     @Environment(\.accessibilityReduceMotion) private var reduced
     private enum Mode { case week, month, year }
     @State private var mode: Mode
-    @State private var weekOffset: CGFloat = 0
-    @State private var previewDay: Date?
+    @State private var wheelPosition: CGFloat = 0
+    @GestureState private var draggingWeek = false
+    @State private var dragOrigin: CGFloat?
+    @State private var wheelAnchor: Date
     @State private var year: Int
     @State private var displayedMonth: Date
 
@@ -1102,6 +1104,7 @@ struct IdeaCalendar: View {
         _displayedMonth = State(initialValue:selection.wrappedValue)
         _mode = State(initialValue:startsWithYear ? .year : .week)
         let calendar = Calendar.current
+        _wheelAnchor = State(initialValue:calendar.startOfDay(for:selection.wrappedValue))
         _year = State(initialValue:calendar.component(.year,from:selection.wrappedValue))
         self.recorded = recorded
         self.applyDay = applyDay
@@ -1140,23 +1143,18 @@ struct IdeaCalendar: View {
                      .frame(minHeight:38).background(palette.accent.opacity(0.16),in:Capsule())
                 }.font(.subheadline.monospaced())
             }.padding(17)
-             .background {
-                 RoundedRectangle(cornerRadius:24).fill(
-                     LinearGradient(colors:[palette.card,palette.accent.opacity(0.20),palette.card],
-                                    startPoint:.topLeading,endPoint:.bottomTrailing)
-                 )
-             }
+             .background(palette.card,in:RoundedRectangle(cornerRadius:24))
              .overlay { RoundedRectangle(cornerRadius:24).strokeBorder(palette.accent.opacity(0.18)).allowsHitTesting(false) }
              .padding(.horizontal,14).padding(.vertical,16)
         }.foregroundStyle(palette.ink).tint(palette.accent)
          .environment(\.locale,Locale(identifier:"ru"))
          .presentationBackground(palette.sheet)
-         .presentationDetents(mode == .week ? [.height(380),.large] : [.height(520),.large])
+         .presentationDetents(mode == .week ? [.height(405),.large] : [.height(520),.large])
          .presentationDragIndicator(.visible)
     }
 
     private var dateHeading: some View {
-        let highlighted = previewDay ?? selection
+        let highlighted = mode == .week ? wheelDate(Int(wheelPosition.rounded())) ?? selection : selection
         let shown = mode == .month ? displayedMonth : highlighted
         return HStack(alignment:.lastTextBaseline,spacing:8) {
             if mode == .year {
@@ -1184,6 +1182,7 @@ struct IdeaCalendar: View {
 
     private func changeMode(_ next:Mode) {
         guard mode != next else { return }
+        if next == .week { wheelPosition = CGFloat(wheelIndex(for:selection)) }
         if next == .month { displayedMonth = selection }
         if next == .year { year = cal.component(.year,from:selection) }
         withAnimation(reduced ? nil : .easeInOut(duration:0.2)) { mode = next }
@@ -1221,87 +1220,123 @@ struct IdeaCalendar: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let stride = max(1,width / 7)
-            let displacement = Int((-weekOffset / stride).rounded())
-            let cells = Array((displacement-5)...(displacement+5))
+            let centerY: CGFloat = 66
+            let selectedIndex = Int(wheelPosition.rounded())
+            let cells = (selectedIndex-5)...(selectedIndex+5)
             ZStack {
-                weekTrack
-                Circle().fill(palette.accent.opacity(0.32))
-                    .overlay { Circle().strokeBorder(palette.accent.opacity(0.34)) }
-                    .frame(width:38,height:38).position(x:width/2,y:57)
-                ForEach(cells,id:\.self) { offset in
-                    if let date = cal.date(byAdding:.day,value:offset,to:selection), allowed(date) {
-                        let relative = CGFloat(offset) * stride + weekOffset
+                weekTrack(centerY:centerY)
+                Circle().fill(palette.accent.opacity(0.23))
+                    .overlay { Circle().strokeBorder(palette.accent.opacity(0.32)) }
+                    .frame(width:38,height:38)
+                    .position(x:width/2,y:centerY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                ForEach(cells,id:\.self) { index in
+                    if let date = wheelDate(index) {
+                        let relative = (CGFloat(index) - wheelPosition) * stride
                         let distance = min(1.4,abs(relative)/max(1,width/2))
                         let curve = distance * distance * 14
-                        Button { settle(offset:offset,stride:stride) } label: {
-                            VStack(spacing:5) {
+                        Button { settleWeek(at:index) } label: {
+                            let selected = index == selectedIndex
+                            ZStack {
                                 Text(date,format:.dateTime.weekday(.abbreviated))
                                     .font(.caption.monospaced()).foregroundStyle(palette.muted)
-                                Text(String(cal.component(.day,from:date)))
-                                    .font(.body.weight(offset == displacement ? .semibold : .regular).monospaced()).monospacedDigit()
-                                    .frame(height:36)
-                                Circle().fill(palette.ink).frame(width:3,height:3)
-                                    .opacity(recorded.contains(cal.startOfDay(for:date)) ? 1 : 0)
-                            }.frame(width:stride,height:80).contentShape(Rectangle())
-                        }.position(x:width/2+relative,y:43+curve)
-                         .opacity(abs(relative) > width*0.46 ? 0.34 : 1)
+                                    .offset(y:-33)
+                                Text(date,format:.dateTime.day())
+                                    .font(.body.weight(selected ? .semibold : .regular).monospaced())
+                                if recorded.contains(cal.startOfDay(for:date)) {
+                                    Circle().fill(palette.ink).frame(width:3,height:3).offset(y:14)
+                                }
+                            }.frame(width:stride,height:110).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                         .position(x:width/2+relative,y:centerY+curve)
                          .accessibilityLabel(date.formatted(date:.complete,time:.omitted))
-                         .accessibilityAddTraits(offset == displacement ? .isSelected : [])
+                         .accessibilityAddTraits(index == selectedIndex ? .isSelected : [])
                          .accessibilityHidden(abs(relative) > width/2)
                     }
                 }
-            }.contentShape(Rectangle()).clipped()
-             .gesture(DragGesture(minimumDistance:7)
+            }
+            .frame(width:width,height:132)
+            .clipped()
+            .contentShape(Rectangle())
+            .highPriorityGesture(DragGesture(minimumDistance:8)
+                .updating($draggingWeek) { _,active,_ in active = true }
                 .onChanged { value in
-                    let distance = value.translation.width
-                    let offset = Int((-distance/stride).rounded())
-                    if let date = cal.date(byAdding:.day,value:offset,to:selection), allowed(date) {
-                        weekOffset = distance
-                        previewDay = date
-                    }
+                    guard dragOrigin != nil || abs(value.translation.width) > abs(value.translation.height) else { return }
+                    let origin = dragOrigin ?? wheelPosition
+                    dragOrigin = origin
+                    wheelPosition = boundedWeekPosition(origin - value.translation.width / stride)
                 }
                 .onEnded { value in
-                    let drift = value.predictedEndTranslation.width - value.translation.width
-                    let distance = weekOffset + min(stride*2,max(-stride*2,drift * 0.3))
-                    settle(offset:Int((-distance/stride).rounded()),stride:stride)
+                    guard dragOrigin != nil else { return }
+                    dragOrigin = nil
+                    let projected = (value.predictedEndTranslation.width - value.translation.width) / stride
+                    let target = boundedWeekPosition(wheelPosition - min(2,max(-2,projected * 0.3)))
+                    settleWeek(at:Int(target.rounded()))
                 })
-             .accessibilityAdjustableAction { direction in
-                 switch direction {
-                 case .increment: settle(offset:1,stride:stride)
-                 case .decrement: settle(offset:-1,stride:stride)
-                 @unknown default: break
-                 }
-             }
-        }.frame(height:104)
+            .onChange(of:draggingWeek) { _,active in
+                // A system gesture can cancel the drag without sending an end event.
+                if !active && dragOrigin != nil {
+                    Task { @MainActor in
+                        guard !draggingWeek, dragOrigin != nil else { return }
+                        dragOrigin = nil
+                        settleWeek(at:Int(wheelPosition.rounded()))
+                    }
+                }
+            }
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: settleWeek(at:selectedIndex+1)
+                case .decrement: settleWeek(at:selectedIndex-1)
+                @unknown default: break
+                }
+            }
+        }.frame(height:132)
     }
 
-    private var weekTrack: some View {
+    private func weekTrack(centerY:CGFloat) -> some View {
         Canvas { context,size in
             let w = size.width
+            let halfHeight: CGFloat = 19
+            let rise: CGFloat = 14
+            let top = centerY - halfHeight
+            let bottom = centerY + halfHeight
             var track = Path()
-            track.move(to:CGPoint(x:0,y:58))
-            track.addQuadCurve(to:CGPoint(x:w,y:58),control:CGPoint(x:w/2,y:18))
-            track.addLine(to:CGPoint(x:w,y:91))
-            track.addQuadCurve(to:CGPoint(x:0,y:91),control:CGPoint(x:w/2,y:53))
+            track.move(to:CGPoint(x:0,y:top+rise))
+            track.addQuadCurve(to:CGPoint(x:w,y:top+rise),control:CGPoint(x:w/2,y:top-rise))
+            track.addLine(to:CGPoint(x:w,y:bottom+rise))
+            track.addQuadCurve(to:CGPoint(x:0,y:bottom+rise),control:CGPoint(x:w/2,y:bottom-rise))
             track.closeSubpath()
-            context.fill(track,with:.color(palette.accent.opacity(0.09)))
-            context.stroke(track,with:.color(palette.accent.opacity(0.15)),lineWidth:0.7)
+            context.fill(track,with:.color(palette.accent.opacity(0.06)))
+            context.stroke(track,with:.color(palette.accent.opacity(0.12)),lineWidth:0.7)
         }.allowsHitTesting(false).accessibilityHidden(true)
     }
 
-    private func allowed(_ date:Date) -> Bool {
-        range.contains(cal.component(.year,from:date))
+    private func wheelIndex(for date:Date) -> Int {
+        cal.dateComponents([.day],from:wheelAnchor,to:cal.startOfDay(for:date)).day ?? 0
     }
 
-    private func settle(offset:Int,stride:CGFloat) {
-        if let next = cal.date(byAdding:.day,value:offset,to:selection), allowed(next) {
-            weekOffset += CGFloat(offset) * stride
-            selection = next
+    private func wheelDate(_ index:Int) -> Date? {
+        guard let day = cal.date(byAdding:.day,value:index,to:wheelAnchor),
+              range.contains(cal.component(.year,from:day)) else { return nil }
+        return cal.startOfDay(for:day)
+    }
+
+    private func boundedWeekPosition(_ position:CGFloat) -> CGFloat {
+        let first = cal.date(from:DateComponents(year:range.lowerBound,month:1,day:1)) ?? wheelAnchor
+        let last = cal.date(from:DateComponents(year:range.upperBound,month:12,day:31)) ?? wheelAnchor
+        return min(CGFloat(wheelIndex(for:last)),max(CGFloat(wheelIndex(for:first)),position))
+    }
+
+    private func settleWeek(at index:Int) {
+        let target = boundedWeekPosition(CGFloat(index))
+        guard let day = wheelDate(Int(target)) else { return }
+        selection = day
+        withAnimation(reduced ? nil : .spring(response:0.30,dampingFraction:0.86)) {
+            wheelPosition = target
         }
-        previewDay = nil
-        withAnimation(reduced ? nil : .spring(response:0.32,dampingFraction:0.85)) { weekOffset = 0 }
     }
-
 
     private var monthGrid: some View {
         let monthStart = cal.dateInterval(of:.month,for:displayedMonth)?.start ?? displayedMonth
