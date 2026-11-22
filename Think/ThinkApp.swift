@@ -180,6 +180,10 @@ struct Studio: View {
     @State private var calendarDay = Date()
     @State private var calendarOpen = false
     @State private var detail: Idea?
+    @State private var selectingIdeas = false
+    @State private var selectedIdeas: Set<UUID> = []
+    @State private var pendingDeletion: Set<UUID> = []
+    @State private var confirmDeletion = false
     @State private var bookmarksOnly = false
     @State private var pastPage: Idea?
     @State private var lastPastPage: UUID?
@@ -296,6 +300,7 @@ struct Studio: View {
             dismissRequest += 1
             page = editorOrigin
         case .collection where detail != nil: detail = nil
+        case .collection where selectingIdeas: endSelection()
         case .collection,.settings: page = .spark
         case .spark: break
         }
@@ -335,6 +340,7 @@ struct Studio: View {
         editing = nil; detail = nil; text = ""; bloom = nil
         search = ""; dayFilter = nil; yearFilter = nil; section = .active
         bookmarksOnly = false; lastPastPage = nil; additionText = ""
+        endSelection(); pendingDeletion.removeAll()
     }
 
     private func resolveIdea(_ id:UUID,change:(inout Notebook,UUID) -> Idea?) {
@@ -445,7 +451,7 @@ struct Studio: View {
 
     private func menuTab<Icon: View>(_ tab:Page,title:String,@ViewBuilder icon:() -> Icon) -> some View {
         Button {
-            if tab != page { detail = nil; page = tab }
+            if tab != page { endSelection(); detail = nil; page = tab }
         } label: {
             icon().frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle())
         }.accessibilityLabel(title)
@@ -697,7 +703,30 @@ struct Studio: View {
             Calendar.current.startOfDay(for: $0.created)
         }.sorted { $0.key > $1.key }
     }
+    private func endSelection() {
+        selectingIdeas = false
+        selectedIdeas.removeAll()
+    }
+
+    private func requestDeletion(_ ids:Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        pendingDeletion = ids
+        confirmDeletion = true
+    }
+
+    private func deleteIdeas() {
+        let ids = pendingDeletion
+        guard !ids.isEmpty else { return }
+        var next = book
+        next.ideas.removeAll { ids.contains($0.id) }
+        guard persist(next) else { return }
+        if let detail, ids.contains(detail.id) { self.detail = nil }
+        pendingDeletion.removeAll()
+        endSelection()
+    }
+
     private var archive: some View {
+        let sections = journalDays
         VStack(alignment: .leading, spacing: 14) {
             if detail != nil {
                 Button { detail = nil } label: {
@@ -712,6 +741,9 @@ struct Studio: View {
                         Image(systemName:idea.bookmarked == true ? "bookmark.fill" : "bookmark")
                             .frame(width:44,height:44)
                     }.accessibilityLabel(idea.bookmarked == true ? "Убрать закладку" : "Добавить закладку")
+                    Button(role:.destructive) { requestDeletion([idea.id]) } label: {
+                        Image(systemName:"trash").frame(width:44,height:44)
+                    }.accessibilityLabel("Удалить идею")
                 }
                 ScrollView(showsIndicators:false) {
                     VStack(alignment: .leading, spacing: 20) {
@@ -760,6 +792,12 @@ struct Studio: View {
                             .background(palette.card,in:RoundedRectangle(cornerRadius:9))
                     }.accessibilityLabel(bookmarksOnly ? "Показать все идеи" : "Показать закладки")
                      .accessibilityAddTraits(bookmarksOnly ? .isSelected : [])
+                    if !sections.isEmpty && !selectingIdeas {
+                        Button { selectingIdeas = true } label: {
+                            Image(systemName:"checkmark.circle").frame(width:44,height:44)
+                                .background(palette.card,in:RoundedRectangle(cornerRadius:9))
+                        }.accessibilityLabel("Выбрать идеи")
+                    }
                 }
                 if let dayFilter {
                     Button { self.dayFilter = nil } label: {
@@ -797,7 +835,6 @@ struct Studio: View {
                 }
                 ScrollView(showsIndicators:false) {
                     LazyVStack(alignment:.leading,spacing:12) {
-                        let sections = journalDays
                         if sections.isEmpty {
                             Text(emptyIdeasMessage)
                                 .foregroundStyle(palette.muted).padding(.vertical,24)
@@ -806,7 +843,10 @@ struct Studio: View {
                             Text(section.key,format:.dateTime.day().month(.wide).year()).font(.footnote.weight(.semibold).monospaced()).padding(.top,8)
                             ForEach(section.value) { idea in
                                 Button {
-                                    detail = idea
+                                    if selectingIdeas {
+                                        if selectedIdeas.contains(idea.id) { selectedIdeas.remove(idea.id) }
+                                        else { selectedIdeas.insert(idea.id) }
+                                    } else { detail = idea }
                                 } label: {
                                     HStack(spacing:12) {
                                         VStack(alignment:.leading,spacing:8) {
@@ -824,18 +864,47 @@ struct Studio: View {
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
                                                 .font(.body.monospaced()).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
-                                        Image(systemName:"chevron.right").foregroundStyle(palette.accent)
+                                        Image(systemName:selectingIdeas
+                                              ? (selectedIdeas.contains(idea.id) ? "checkmark.circle.fill" : "circle")
+                                              : "chevron.right")
+                                            .font(.system(size:selectingIdeas ? 22 : 15))
+                                            .foregroundStyle(palette.accent)
                                     }.multilineTextAlignment(.leading).padding(16).foregroundStyle(palette.ink)
                                      .background(palette.card,in:RoundedRectangle(cornerRadius:17))
                                      .overlay { RoundedRectangle(cornerRadius:17).strokeBorder(palette.ink.opacity(0.06)).allowsHitTesting(false) }
-                                }
+                                }.accessibilityAddTraits(selectedIdeas.contains(idea.id) ? .isSelected : [])
+                                 .contextMenu {
+                                     if !selectingIdeas {
+                                         Button(role:.destructive) { requestDeletion([idea.id]) } label: {
+                                             Label("Удалить",systemImage:"trash")
+                                         }
+                                     }
+                                 }
                             }
                         }
                     }
                 }.scrollDismissesKeyboard(.interactively)
-
+                if selectingIdeas {
+                    HStack {
+                        Button("Отмена",action:endSelection).frame(minHeight:44)
+                        Spacer()
+                        Button(role:.destructive) { requestDeletion(selectedIdeas) } label: {
+                            Label("Удалить · \(selectedIdeas.count)",systemImage:"trash").frame(minHeight:44)
+                        }.disabled(selectedIdeas.isEmpty)
+                    }.font(.subheadline.monospaced())
+                }
             }
         }.buttonStyle(.plain).padding(.horizontal,22).padding(.bottom,8)
+         .onChange(of:sections.flatMap { $0.value.map(\.id) }) { _,visible in
+             selectedIdeas.formIntersection(visible)
+         }
+         .alert("Удалить идеи?",isPresented:$confirmDeletion) {
+             Button("Удалить",role:.destructive,action:deleteIdeas)
+             Button("Отмена",role:.cancel) { pendingDeletion.removeAll() }
+         } message: {
+             Text(pendingDeletion.count == 1 ? "Идея и её дополнения будут удалены." :
+                  "Выбрано идей: \(pendingDeletion.count). Они будут удалены вместе с дополнениями.")
+         }
          .foregroundStyle(palette.ink).background(palette.sheet.ignoresSafeArea())
          .environment(\.locale,Locale(identifier:"ru"))
          .sheet(isPresented:$calendarOpen) {
@@ -1313,7 +1382,7 @@ struct JournalSetup: View {
         self.unlock = unlock
         self.onCancel = onCancel
         self.onSave = onSave
-        _stage = State(initialValue: existing == nil ? .intro : .title)
+        _stage = State(initialValue: existing == nil ? .intro : .cover)
         _cover = State(initialValue: existing ?? JournalCover())
     }
 
@@ -1359,8 +1428,9 @@ struct JournalSetup: View {
 
     private func stepBack() {
         typing = false
-        if stage == .cover { change(.title) }
+        if stage == .cover && existing == nil { change(.title) }
         else if existing == nil { change(.intro) }
+        else if stage == .title { change(.cover) }
         else { onCancel() }
     }
 
@@ -1389,13 +1459,24 @@ struct JournalSetup: View {
                 HStack(spacing:14) {
                     ForEach(JournalCover.colors.indices,id:\.self) { index in swatch(index) }
                 }
-                PhotosPicker(selection:$selection,matching:.images) {
-                    Label(loading ? "Загрузка…" : "Фото из галереи",systemImage:"photo").frame(minHeight:44)
-                }
-                if cover.photo != nil {
-                    Button("Убрать фото") { selection = nil; cover.photo = nil }.font(.footnote.monospaced())
+                HStack(spacing:12) {
+                    PhotosPicker(selection:$selection,matching:.images) {
+                        Label(loading ? "Загрузка…" : (cover.photo == nil ? "Добавить фото" : "Заменить фото"),
+                              systemImage:"photo").frame(minHeight:44)
+                    }
+                    if cover.photo != nil {
+                        Button(role:.destructive) {
+                            selection = nil
+                            cover.photo = nil
+                        } label: {
+                            Image(systemName:"trash").frame(width:44,height:44)
+                                .background(palette.card,in:RoundedRectangle(cornerRadius:9))
+                        }.accessibilityLabel("Убрать фото с обложки")
+                    }
                 }
                 if existing != nil {
+                    Button("Изменить название") { change(.title); typing = true }
+                        .font(.subheadline.monospaced()).frame(minHeight:32)
                     Button {
                         previewFinish = cover.surface
                         finishesOpen = true
@@ -2183,81 +2264,199 @@ private struct AvatarExpression {
     var pitch: Double = 0
 }
 
-private struct AvatarFace: View {
+private struct AvatarFace: UIViewRepresentable {
     let design: AvatarDesign
     var expression = AvatarExpression()
 
-    var body: some View {
-        Canvas { context,size in
-            let scale = min(size.width,size.height) / 100
-            context.translateBy(x:(size.width - 100 * scale)/2,y:(size.height - 100 * scale)/2)
-            context.scaleBy(x:scale,y:scale)
+    func makeCoordinator() -> Model { Model() }
 
-            let dark = Color(red:0.12,green:0.09,blue:0.12)
-            let head = Path(ellipseIn:CGRect(x:13,y:21,width:74,height:68))
-            func paint(_ shape:Path) {
-                context.fill(shape,with:.linearGradient(
-                    Gradient(colors:[design.tone.color.opacity(0.95),design.tone.color,design.tone.color.opacity(0.70)]),
-                    startPoint:CGPoint(x:32,y:18),endPoint:CGPoint(x:74,y:94)))
-            }
+    func makeUIView(context:Context) -> SCNView {
+        let view = SCNView()
+        view.scene = context.coordinator.scene
+        view.pointOfView = context.coordinator.camera
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        view.antialiasingMode = .multisampling4X
+        return view
+    }
 
-            for side in [-1.0,1.0] {
-                let x = 50 + side * 28
-                switch design.form {
-                case .moon: break
-                case .cat:
-                    var ear = Path()
-                    ear.move(to:CGPoint(x:x-12,y:38))
-                    ear.addLine(to:CGPoint(x:x+side*5,y:9))
-                    ear.addQuadCurve(to:CGPoint(x:x+12,y:38),control:CGPoint(x:x+15,y:14))
-                    ear.closeSubpath()
-                    paint(ear)
-                case .bear:
-                    paint(Path(ellipseIn:CGRect(x:x-12,y:13,width:24,height:25)))
-                    context.fill(Path(ellipseIn:CGRect(x:x-7,y:18,width:14,height:16)),with:.color(dark.opacity(0.34)))
-                }
-            }
-            paint(head)
-            for (x,blink) in [(CGFloat(37),expression.blinkLeft),(CGFloat(63),expression.blinkRight)] {
-                let eyeHeight = max(1.5,11 * (1-blink))
-                let eye = CGRect(x:x-4,y:53-eyeHeight/2,width:8,height:eyeHeight)
-                context.fill(Path(roundedRect:eye,cornerRadius:4),with:.color(dark))
-                if eyeHeight > 5 {
-                    context.fill(Path(ellipseIn:CGRect(x:x-1,y:eye.minY+1.5,width:2,height:2.4)),with:.color(.white.opacity(0.66)))
-                }
-                var brow = Path()
-                let browY = 44 - 6 * expression.brow
-                brow.move(to:CGPoint(x:x-4,y:browY))
-                brow.addQuadCurve(to:CGPoint(x:x+4,y:browY),control:CGPoint(x:x,y:browY-3))
-                context.stroke(brow,with:.color(dark.opacity(0.72)),style:StrokeStyle(lineWidth:1.35,lineCap:.round))
-                if design.freckles {
-                    for offset in [-4.0,0,4] {
-                        context.fill(Path(ellipseIn:CGRect(x:x+offset-0.8,y:61+abs(offset)*0.25,width:1.6,height:1.6)),
-                                     with:.color(dark.opacity(0.43)))
-                    }
-                }
-            }
+    func updateUIView(_ view:SCNView,context:Context) {
+        context.coordinator.render(design,expression:expression)
+        view.setNeedsDisplay()
+    }
 
-            let mouthWidth = 9 + 11 * expression.smile
-            let mouthHeight = expression.jaw * 21
-            if mouthHeight > 2.5 {
-                context.fill(Path(ellipseIn:CGRect(x:50-mouthWidth/2,y:67-mouthHeight/3,
-                                                  width:mouthWidth,height:mouthHeight)),with:.color(dark))
-            } else {
-                var mouth = Path()
-                mouth.move(to:CGPoint(x:50-mouthWidth/2,y:67))
-                mouth.addQuadCurve(to:CGPoint(x:50+mouthWidth/2,y:67),
-                                   control:CGPoint(x:50,y:68+11*expression.smile))
-                context.stroke(mouth,with:.color(dark),style:StrokeStyle(lineWidth:2,lineCap:.round))
+    final class Model {
+        let scene = SCNScene()
+        let camera = SCNNode()
+        private let head = SCNNode()
+        private let skin = SCNMaterial()
+        private var eyes: [SCNNode] = []
+        private var brows: [SCNNode] = []
+        private var cheeks: [SCNNode] = []
+        private var freckles: [SCNNode] = []
+        private var catEars: [SCNNode] = []
+        private var bearEars: [SCNNode] = []
+        private let closedMouth = SCNNode()
+        private let openMouth = SCNNode()
+        private let tongue = SCNNode()
+        private var previousTone: AvatarDesign.Tone?
+
+        init() {
+            scene.background.contents = UIColor.clear
+            camera.camera = SCNCamera()
+            camera.camera?.usesOrthographicProjection = true
+            camera.camera?.orthographicScale = 1.36
+            camera.position = SCNVector3(0,0.15,5)
+            scene.rootNode.addChildNode(camera)
+            scene.rootNode.addChildNode(head)
+
+            light(.ambient,800,at:SCNVector3Zero,color:UIColor(white:0.92,alpha:1))
+            light(.directional,1500,at:SCNVector3(-3,4,5),color:UIColor(red:1,green:0.91,blue:0.80,alpha:1))
+            light(.directional,800,at:SCNVector3(3,2,-3),color:UIColor(red:0.69,green:0.79,blue:1,alpha:1))
+
+            skin.lightingModel = .physicallyBased
+            skin.roughness.contents = 0.48
+            let cream = material(UIColor(red:1,green:0.98,blue:0.92,alpha:1),roughness:0.32)
+            let iris = material(UIColor(red:0.25,green:0.17,blue:0.22,alpha:1),roughness:0.34)
+            let black = material(UIColor(white:0.045,alpha:1),roughness:0.24)
+            let nose = material(UIColor(red:0.30,green:0.17,blue:0.20,alpha:1),roughness:0.55)
+            let pink = material(UIColor(red:0.86,green:0.42,blue:0.42,alpha:1),roughness:0.66)
+
+            oval(in:head,at:SCNVector3Zero,size:SCNVector3(0.97,0.88,0.58),material:skin)
+            for side:Float in [-1,1] {
+                let x = side * 0.35
+                let eye = SCNNode()
+                eye.position = SCNVector3(x,0.11,0.50)
+                head.addChildNode(eye)
+                eyes.append(eye)
+                oval(in:eye,at:SCNVector3Zero,size:SCNVector3(0.23,0.27,0.09),material:cream)
+                oval(in:eye,at:SCNVector3(side * -0.025,0.005,0.076),
+                     size:SCNVector3(0.129,0.154,0.035),material:iris)
+                oval(in:eye,at:SCNVector3(side * -0.025,0.005,0.10),
+                     size:SCNVector3(0.085,0.110,0.028),material:black)
+                oval(in:eye,at:SCNVector3(-0.06,0.069,0.122),
+                     size:SCNVector3(0.027,0.028,0.010),material:cream)
+
+                let brow = oval(in:head,at:SCNVector3(x,0.46,0.465),
+                                size:SCNVector3(0.132,0.029,0.025),material:nose)
+                brow.eulerAngles.z = side * -0.15
+                brows.append(brow)
+                cheeks.append(oval(in:head,at:SCNVector3(side * 0.55,-0.27,0.416),
+                                   size:SCNVector3(0.142,0.074,0.038),material:pink))
+                for index in 0..<3 {
+                    let spotX = 0.48 + Float(index) * 0.09
+                    let spotZ = 0.49 - Float(index) * 0.047
+                    freckles.append(oval(in:head,at:SCNVector3(side * spotX,-0.23 + Float(index%2)*0.04,spotZ),
+                                          size:SCNVector3(0.017,0.021,0.014),material:nose))
+                }
+
+                let round = SCNNode()
+                round.position = SCNVector3(side*0.65,0.68,0.04)
+                head.addChildNode(round)
+                bearEars.append(round)
+                oval(in:round,at:SCNVector3Zero,size:SCNVector3(0.27,0.28,0.19),material:skin)
+                oval(in:round,at:SCNVector3(0,0,0.156),size:SCNVector3(0.157,0.17,0.052),material:pink)
+
+                let pointed = SCNNode()
+                pointed.position = SCNVector3(side*0.63,0.68,0.03)
+                pointed.eulerAngles.z = side * -0.26
+                head.addChildNode(pointed)
+                catEars.append(pointed)
+                addEar(to:pointed,scale:1,z:0,material:skin)
+                addEar(to:pointed,scale:0.55,z:0.11,material:pink)
             }
+            oval(in:head,at:SCNVector3(0,-0.19,0.571),size:SCNVector3(0.082,0.055,0.048),material:nose)
+            closedMouth.position = SCNVector3(0,-0.35,0.54)
+            head.addChildNode(closedMouth)
+            let smilePath = UIBezierPath()
+            smilePath.move(to:CGPoint(x:-0.18,y:0.045))
+            smilePath.addQuadCurve(to:CGPoint(x:0.18,y:0.045),controlPoint:CGPoint(x:0,y:-0.12))
+            smilePath.addQuadCurve(to:CGPoint(x:-0.18,y:0.045),controlPoint:CGPoint(x:0,y:-0.19))
+            smilePath.close()
+            let smile = SCNShape(path:smilePath,extrusionDepth:0.020)
+            smile.chamferRadius = 0.006
+            smile.firstMaterial = black
+            closedMouth.geometry = smile
+
+            openMouth.position = SCNVector3(0,-0.36,0.525)
+            head.addChildNode(openMouth)
+            oval(in:openMouth,at:SCNVector3Zero,size:SCNVector3(0.19,0.17,0.05),material:black)
+            tongue.position = SCNVector3(0,-0.084,0.04)
+            openMouth.addChildNode(tongue)
+            oval(in:tongue,at:SCNVector3Zero,size:SCNVector3(0.094,0.047,0.014),material:pink)
         }
-        .rotation3DEffect(.radians(expression.yaw),axis:(x:0,y:1,z:0),perspective:0.3)
-        .rotation3DEffect(.radians(expression.pitch),axis:(x:1,y:0,z:0),perspective:0.3)
-        .rotationEffect(.radians(expression.roll))
-        .accessibilityHidden(true)
+
+        func render(_ design:AvatarDesign,expression:AvatarExpression) {
+            if previousTone != design.tone {
+                skin.diffuse.contents = UIColor(design.tone.color)
+                previousTone = design.tone
+            }
+            catEars.forEach { $0.isHidden = design.form != .cat }
+            bearEars.forEach { $0.isHidden = design.form != .bear }
+            freckles.forEach { $0.isHidden = !design.freckles }
+            head.eulerAngles = SCNVector3(Float(expression.pitch),Float(expression.yaw),Float(-expression.roll))
+            eyes[0].scale.y = max(0.05,1 - Float(expression.blinkLeft) * 0.95)
+            eyes[1].scale.y = max(0.05,1 - Float(expression.blinkRight) * 0.95)
+            for brow in brows { brow.position.y = 0.46 + 0.14 * Float(expression.brow) }
+            let grin = Float(expression.smile)
+            for cheek in cheeks { cheek.opacity = CGFloat(0.63 + grin * 0.33) }
+            let jaw = Float(expression.jaw)
+            openMouth.isHidden = jaw < 0.12
+            closedMouth.isHidden = !openMouth.isHidden
+            openMouth.scale = SCNVector3(0.72 + grin * 0.44,0.38 + jaw * 0.65,1)
+            closedMouth.scale = SCNVector3(0.72 + grin * 0.65,0.65 + grin * 0.72,1)
+        }
+
+        private func material(_ color:UIColor,roughness:Double) -> SCNMaterial {
+            let result = SCNMaterial()
+            result.lightingModel = .physicallyBased
+            result.diffuse.contents = color
+            result.roughness.contents = roughness
+            return result
+        }
+
+        @discardableResult private func oval(in parent:SCNNode,at position:SCNVector3,
+                                              size:SCNVector3,material:SCNMaterial) -> SCNNode {
+            let shape = SCNSphere(radius:1)
+            shape.segmentCount = 32
+            shape.firstMaterial = material
+            let node = SCNNode(geometry:shape)
+            node.position = position
+            node.scale = size
+            parent.addChildNode(node)
+            return node
+        }
+
+        private func addEar(to parent:SCNNode,scale:Float,z:Float,material:SCNMaterial) {
+            let path = UIBezierPath()
+            path.move(to:CGPoint(x:-0.23,y:-0.13))
+            path.addQuadCurve(to:CGPoint(x:0.03,y:0.42),controlPoint:CGPoint(x:-0.14,y:0.44))
+            path.addQuadCurve(to:CGPoint(x:0.26,y:-0.13),controlPoint:CGPoint(x:0.18,y:0.43))
+            path.close()
+            let geometry = SCNShape(path:path,extrusionDepth:0.17)
+            geometry.chamferRadius = 0.07
+            geometry.firstMaterial = material
+            let piece = SCNNode(geometry:geometry)
+            piece.position.z = z
+            piece.scale = SCNVector3(scale,scale,scale)
+            parent.addChildNode(piece)
+        }
+
+        private func light(_ type:SCNLight.LightType,_ strength:CGFloat,at position:SCNVector3,color:UIColor) {
+            let node = SCNNode()
+            let light = SCNLight()
+            light.type = type
+            light.intensity = strength
+            light.color = color
+            node.light = light
+            node.position = position
+            if type == .directional { node.look(at:SCNVector3Zero) }
+            scene.rootNode.addChildNode(node)
+        }
     }
 }
-
 
 private struct AvatarEditor: View {
     @Environment(\.appPalette) private var palette
