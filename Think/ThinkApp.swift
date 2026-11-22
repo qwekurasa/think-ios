@@ -2,6 +2,8 @@ import SwiftUI
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
+import ARKit
+import simd
 
 @main
 struct ThinkApp: App {
@@ -114,14 +116,46 @@ enum IdeaSection: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+enum NotebookFile {
+    static var url: URL {
+        URL.applicationSupportDirectory.appending(path:"Thinkinbrain",directoryHint:.isDirectory)
+            .appending(path:"ideas.json")
+    }
+
+    static func load(legacy:Data, at file:URL = url) throws -> Notebook {
+        let bytes: Data
+        do { bytes = try Data(contentsOf:file) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            guard !legacy.isEmpty else { return Notebook() }
+            let recovered = try JSONDecoder().decode(Notebook.self,from:legacy)
+            try save(recovered,at:file)
+            return recovered
+        }
+        return try JSONDecoder().decode(Notebook.self,from:bytes)
+    }
+
+    static func save(_ notebook:Notebook, at file:URL = url) throws {
+        try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
+        try JSONEncoder().encode(notebook).write(to:file,options:.atomic)
+    }
+
+    static func clear() throws {
+        do { try FileManager.default.removeItem(at:url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile {}
+    }
+}
+
 enum Page { case spark, editor, collection, settings }
 struct Studio: View {
-    @AppStorage("think.book.v1") private var data = Data()
+    @AppStorage("think.book.v1") private var legacyBook = Data()
+    @AppStorage("think.avatar.v1") private var avatarData = Data()
+    @State private var avatarOpen = false
     @AppStorage("think.draft.text") private var draft = ""
     @AppStorage("think.draft.step") private var draftStep = ""
     @State private var book = Notebook()
     @AppStorage("think.journal.v1") private var coverData = Data()
-    @State private var cover = JournalCover.saved()
+    @State private var cover: JournalCover?
+    @State private var preparingNotebook = true
     @State private var editingCover = false
     @State private var page = Page.spark
     @State private var showRewards = false
@@ -161,7 +195,10 @@ struct Studio: View {
     var accent: Color { palette.accent }
     var body: some View {
         ZStack {
-            if cover == nil || editingCover {
+            if preparingNotebook {
+                NotebookLoader(color:palette.ink).frame(maxWidth:.infinity,maxHeight:.infinity)
+                    .background(palette.sheet.ignoresSafeArea())
+            } else if cover == nil || editingCover {
                 JournalSetup(existing:cover, balance:book.balance, ownedFinishes:book.ownedFinishes ?? [],
                              unlock:unlockFinish,onCancel:{ editingCover = false }) { newCover in
                     guard let encoded = try? JSONEncoder().encode(newCover) else { return }
@@ -179,21 +216,39 @@ struct Studio: View {
         }
         .animation(reduced ? nil : .easeInOut(duration: 0.32), value: page)
         .animation(reduced ? nil : .easeInOut(duration:0.35),value:cover != nil && !editingCover)
+        .edgeBack(enabled:!preparingNotebook && cover != nil && !editingCover && page != .spark,
+                  action:stepBack)
         .preferredColorScheme(.dark)
         .safeAreaInset(edge:.bottom,spacing:0) {
             if cover != nil && !editingCover && page != .editor { menu }
         }
         .buttonStyle(.plain)
         .tint(palette.accent)
-        .onAppear {
-            if !data.isEmpty {
-                do { book = try JSONDecoder().decode(Notebook.self,from:data) }
-                catch { storageError = true; return }
+        .task {
+            guard preparingNotebook else { return }
+            let notes = legacyBook
+            let appearance = coverData
+            let result = await Task.detached(priority:.userInitiated) {
+                (Result { try NotebookFile.load(legacy:notes) }, JournalCover.decode(appearance))
+            }.value
+            cover = result.1
+            switch result.0 {
+            case .success(let loaded):
+                book = loaded
+                notebookLoaded = true
+                if !notes.isEmpty { legacyBook = Data() }
+            case .failure:
+                storageError = true
             }
-            notebookLoaded = true
+            preparingNotebook = false
             noteVisit()
         }
-        .alert("Не удалось прочитать коллекцию",isPresented:$storageError) {
+        .sheet(isPresented:$avatarOpen) {
+            AvatarEditor(initial:profileAvatar ?? AvatarDesign()) { design in
+                if let saved = try? JSONEncoder().encode(design) { avatarData = saved }
+            }
+        }
+        .alert("Не удалось открыть или сохранить коллекцию",isPresented:$storageError) {
             Button("Закрыть",role:.cancel) {}
         } message: { Text("Исходные записи сохранены на устройстве.") }
         .onChange(of:scenePhase) { _,phase in
@@ -217,23 +272,45 @@ struct Studio: View {
                 additionText = ""
                 additionTarget = idea
             }
-        }) { past in previousPageSheet(past) }
-        .sheet(item:$additionTarget) { idea in additionSheet(idea) }
+        }) { past in previousPageSheet(past).edgeBack { pastPage = nil } }
+        .sheet(item:$additionTarget) { idea in
+            additionSheet(idea).edgeBack { additionTarget = nil }
+        }
         .alert("Из прошлых страниц",isPresented:$noPastPages) {
             Button("Понятно",role:.cancel) {}
         } message: { Text("Здесь будут появляться идеи, записанные в предыдущие дни.") }
         .sheet(isPresented: $showRewards) {
-            rewards.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
+            rewards.edgeBack { showRewards = false }.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
         }
         .font(.body.monospaced())
         .foregroundStyle(palette.ink).environment(\.appPalette,palette)
     }
+    private var profileAvatar: AvatarDesign? {
+        try? JSONDecoder().decode(AvatarDesign.self,from:avatarData)
+    }
+
+    private func stepBack() {
+        switch page {
+        case .editor:
+            voice.cancel()
+            dismissRequest += 1
+            page = editorOrigin
+        case .collection where detail != nil: detail = nil
+        case .collection,.settings: page = .spark
+        case .spark: break
+        }
+    }
+
     private func persist(_ next: Notebook) -> Bool {
-        if !data.isEmpty, (try? JSONDecoder().decode(Notebook.self, from: data)) == nil { storageError = true; return false }
-        guard let saved = try? JSONEncoder().encode(next) else { return false }
-        data = saved
-        book = next
-        return true
+        guard notebookLoaded else { storageError = true; return false }
+        do {
+            try NotebookFile.save(next)
+            book = next
+            return true
+        } catch {
+            storageError = true
+            return false
+        }
     }
     private func noteVisit() {
         guard cover != nil, notebookLoaded, !storageError else { return }
@@ -244,7 +321,11 @@ struct Studio: View {
 
     private func resetApp() {
         voice.cancel()
-        data = Data(); coverData = Data()
+        do { try NotebookFile.clear() } catch { storageError = true; return }
+        legacyBook = Data()
+        coverData = Data()
+        avatarData = Data()
+        notebookLoaded = true
         draft = ""; draftStep = ""; draftBloom = ""; draftFlower = false
         paletteName = AppPalette.white.rawValue
         UserDefaults.standard.removeObject(forKey:"think.draft.audio")
@@ -342,8 +423,10 @@ struct Studio: View {
                 .frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle())
             }.accessibilityLabel("Звёзды").accessibilityValue(Text(book.balance,format:.number))
             menuTab(.settings, title:"Профиль и настройки") {
-                Text(profileInitial).font(.footnote.weight(.medium).monospaced())
-                    .lineLimit(1).minimumScaleFactor(0.65)
+                Group {
+                    if let design = profileAvatar { AvatarFace(design:design).padding(2) }
+                    else { Text(profileInitial).font(.footnote.weight(.medium).monospaced()) }
+                }.lineLimit(1).minimumScaleFactor(0.65)
                     .foregroundStyle(palette.ink)
                     .frame(width:34,height:34)
                     .background(palette.card,in:Circle())
@@ -373,6 +456,19 @@ struct Studio: View {
         ScrollView {
             VStack(alignment:.leading,spacing:22) {
                 Text("Профиль и настройки").font(.title2.bold().monospaced())
+                Button { avatarOpen = true } label: {
+                    HStack(spacing:12) {
+                        if let design = profileAvatar {
+                            AvatarFace(design:design).frame(width:52,height:52)
+                        } else {
+                            Image(systemName:"person.crop.circle").font(.system(size:30))
+                                .frame(width:52,height:52)
+                        }
+                        Text(profileAvatar == nil ? "Создать аватар" : "Изменить аватар")
+                        Spacer()
+                        Image(systemName:"chevron.right").font(.caption)
+                    }.padding(12).background(palette.card,in:RoundedRectangle(cornerRadius:16))
+                }
                 if let cover {
                     Button { editingCover = true } label: {
                         HStack(spacing:16) {
@@ -460,7 +556,7 @@ struct Studio: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Button { voice.cancel(); dismissRequest += 1; page = editorOrigin } label: {
+                Button(action:stepBack) { {
                     Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }.accessibilityLabel("Назад")
                 Spacer()
@@ -1082,9 +1178,8 @@ import PhotosUI
 import ImageIO
 
 struct JournalCover: Codable, Equatable {
-    static func saved() -> Self? {
-        guard let data = UserDefaults.standard.data(forKey:"think.journal.v1"),
-              let cover = try? JSONDecoder().decode(Self.self,from:data),
+    static func decode(_ data:Data) -> Self? {
+        guard let cover = try? JSONDecoder().decode(Self.self,from:data),
               colors.indices.contains(cover.shade), !cover.title.isEmpty else { return nil }
         return cover
     }
@@ -1224,6 +1319,7 @@ struct JournalSetup: View {
 
     var body: some View {
         content
+            .edgeBack(enabled:stage != .intro,action:stepBack)
             .task { await revealPrompt() }
             .task(id:selection) { await readPhoto() }
             .sheet(isPresented:$finishesOpen) { finishPicker }
@@ -1252,17 +1348,20 @@ struct JournalSetup: View {
 
     private var header: some View {
         HStack {
-            Button {
-                typing = false
-                if stage == .cover { change(.title) }
-                else if existing == nil { change(.intro) } else { onCancel() }
-            } label: { Image(systemName:"chevron.left").frame(width:44,height:44) }
+            Button(action:stepBack) { Image(systemName:"chevron.left").frame(width:44,height:44) }
             .accessibilityLabel("Назад")
             Spacer()
             Text(stage == .title ? "Название" : "Обложка").font(.subheadline.weight(.medium).monospaced())
             Spacer()
             Color.clear.frame(width:44,height:44).accessibilityHidden(true)
         }.padding(.horizontal,20)
+    }
+
+    private func stepBack() {
+        typing = false
+        if stage == .cover { change(.title) }
+        else if existing == nil { change(.intro) }
+        else { onCancel() }
     }
 
     @ViewBuilder private var controls: some View {
@@ -1992,5 +2091,344 @@ private struct JournalMesh {
         }
         let faces = SCNGeometryElement(data:indices,primitiveType:.triangles,primitiveCount:indexCount/3,bytesPerIndex:2)
         return SCNGeometry(sources:[source(.vertex,3,0),source(.normal,3,12),source(.texcoord,2,24)],elements:[faces])
+    }
+}
+
+
+private extension View {
+    func edgeBack(enabled:Bool = true, action:@escaping () -> Void) -> some View {
+        overlay(alignment:.leading) {
+            if enabled {
+                GeometryReader { metrics in
+                    Color.clear.contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance:14)
+                            .onEnded { swipe in
+                                let width = metrics.size.width
+                                // The strip accepts only a deliberate horizontal motion.
+                                let reach = swipe.translation.width
+                                if reach >= max(width * 3,72), reach > abs(swipe.translation.height) * 1.6 {
+                                    action()
+                                }
+                            })
+                }.frame(width:18)
+                 .padding(.vertical,50)
+                 .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+private struct NotebookLoader: View {
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduced
+
+    var body: some View {
+        TimelineView(.animation(paused:reduced)) { moment in
+            let turn = moment.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy:1.25)
+            SparkShape().fill(color).frame(width:35,height:35)
+                .rotationEffect(.degrees(reduced ? 0 : turn * 288))
+        }.accessibilityLabel("Загрузка дневника")
+    }
+}
+
+private struct AvatarDesign: Codable {
+    enum Form: String, CaseIterable, Codable, Identifiable {
+        case moon, cat, bear
+        var id: Self { self }
+        var title: String {
+            switch self {
+            case .moon: "Луна"
+            case .cat: "Кот"
+            case .bear: "Медведь"
+            }
+        }
+    }
+
+    enum Tone: String, CaseIterable, Codable, Identifiable {
+        case pearl, peach, mint, lilac, blue
+        var id: Self { self }
+        var title: String {
+            switch self {
+            case .pearl: "Жемчуг"
+            case .peach: "Персик"
+            case .mint: "Мята"
+            case .lilac: "Сирень"
+            case .blue: "Синий"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .pearl: Color(red:0.85,green:0.84,blue:0.79)
+            case .peach: Color(red:0.88,green:0.55,blue:0.43)
+            case .mint: Color(red:0.55,green:0.75,blue:0.64)
+            case .lilac: Color(red:0.70,green:0.59,blue:0.82)
+            case .blue: Color(red:0.48,green:0.64,blue:0.81)
+            }
+        }
+    }
+
+    var form: Form = .moon
+    var tone: Tone = .pearl
+    var freckles = false
+}
+
+private struct AvatarExpression {
+    var blinkLeft: CGFloat = 0
+    var blinkRight: CGFloat = 0
+    var brow: CGFloat = 0
+    var jaw: CGFloat = 0
+    var smile: CGFloat = 0
+    var roll: Double = 0
+    var yaw: Double = 0
+    var pitch: Double = 0
+}
+
+private struct AvatarFace: View {
+    let design: AvatarDesign
+    var expression = AvatarExpression()
+
+    var body: some View {
+        Canvas { context,size in
+            let scale = min(size.width,size.height) / 100
+            context.translateBy(x:(size.width - 100 * scale)/2,y:(size.height - 100 * scale)/2)
+            context.scaleBy(x:scale,y:scale)
+
+            let dark = Color(red:0.12,green:0.09,blue:0.12)
+            let head = Path(ellipseIn:CGRect(x:13,y:21,width:74,height:68))
+            func paint(_ shape:Path) {
+                context.fill(shape,with:.linearGradient(
+                    Gradient(colors:[design.tone.color.opacity(0.95),design.tone.color,design.tone.color.opacity(0.70)]),
+                    startPoint:CGPoint(x:32,y:18),endPoint:CGPoint(x:74,y:94)))
+            }
+
+            for side in [-1.0,1.0] {
+                let x = 50 + side * 28
+                switch design.form {
+                case .moon: break
+                case .cat:
+                    var ear = Path()
+                    ear.move(to:CGPoint(x:x-12,y:38))
+                    ear.addLine(to:CGPoint(x:x+side*5,y:9))
+                    ear.addQuadCurve(to:CGPoint(x:x+12,y:38),control:CGPoint(x:x+15,y:14))
+                    ear.closeSubpath()
+                    paint(ear)
+                case .bear:
+                    paint(Path(ellipseIn:CGRect(x:x-12,y:13,width:24,height:25)))
+                    context.fill(Path(ellipseIn:CGRect(x:x-7,y:18,width:14,height:16)),with:.color(dark.opacity(0.34)))
+                }
+            }
+            paint(head)
+            for (x,blink) in [(CGFloat(37),expression.blinkLeft),(CGFloat(63),expression.blinkRight)] {
+                let eyeHeight = max(1.5,11 * (1-blink))
+                let eye = CGRect(x:x-4,y:53-eyeHeight/2,width:8,height:eyeHeight)
+                context.fill(Path(roundedRect:eye,cornerRadius:4),with:.color(dark))
+                if eyeHeight > 5 {
+                    context.fill(Path(ellipseIn:CGRect(x:x-1,y:eye.minY+1.5,width:2,height:2.4)),with:.color(.white.opacity(0.66)))
+                }
+                var brow = Path()
+                let browY = 44 - 6 * expression.brow
+                brow.move(to:CGPoint(x:x-4,y:browY))
+                brow.addQuadCurve(to:CGPoint(x:x+4,y:browY),control:CGPoint(x:x,y:browY-3))
+                context.stroke(brow,with:.color(dark.opacity(0.72)),style:StrokeStyle(lineWidth:1.35,lineCap:.round))
+                if design.freckles {
+                    for offset in [-4.0,0,4] {
+                        context.fill(Path(ellipseIn:CGRect(x:x+offset-0.8,y:61+abs(offset)*0.25,width:1.6,height:1.6)),
+                                     with:.color(dark.opacity(0.43)))
+                    }
+                }
+            }
+
+            let mouthWidth = 9 + 11 * expression.smile
+            let mouthHeight = expression.jaw * 21
+            if mouthHeight > 2.5 {
+                context.fill(Path(ellipseIn:CGRect(x:50-mouthWidth/2,y:67-mouthHeight/3,
+                                                  width:mouthWidth,height:mouthHeight)),with:.color(dark))
+            } else {
+                var mouth = Path()
+                mouth.move(to:CGPoint(x:50-mouthWidth/2,y:67))
+                mouth.addQuadCurve(to:CGPoint(x:50+mouthWidth/2,y:67),
+                                   control:CGPoint(x:50,y:68+11*expression.smile))
+                context.stroke(mouth,with:.color(dark),style:StrokeStyle(lineWidth:2,lineCap:.round))
+            }
+        }
+        .rotation3DEffect(.radians(expression.yaw),axis:(x:0,y:1,z:0),perspective:0.3)
+        .rotation3DEffect(.radians(expression.pitch),axis:(x:1,y:0,z:0),perspective:0.3)
+        .rotationEffect(.radians(expression.roll))
+        .accessibilityHidden(true)
+    }
+}
+
+
+private struct AvatarEditor: View {
+    @Environment(\.appPalette) private var palette
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var tracker = AvatarTracker()
+    @State private var cameraRequested = false
+    @State private var design: AvatarDesign
+    let onSave: (AvatarDesign) -> Void
+
+    init(initial:AvatarDesign, onSave:@escaping (AvatarDesign) -> Void) {
+        _design = State(initialValue:initial)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        VStack(spacing:0) {
+            HStack {
+                Button("Отмена") { dismiss() }.frame(minHeight:44)
+                Spacer()
+                Button("Готово") { onSave(design); dismiss() }
+                    .fontWeight(.semibold).frame(minHeight:44)
+            }.padding(.horizontal,22).padding(.top,12)
+            ScrollView {
+                VStack(alignment:.leading,spacing:20) {
+                    Text("Твой аватар").font(.title2.bold().monospaced())
+                    ZStack {
+                        Circle().fill(palette.accent.opacity(0.09)).frame(width:152,height:152)
+                        Circle().strokeBorder(palette.accent.opacity(0.18)).frame(width:152,height:152)
+                        AvatarFace(design:design,expression:tracker.expression).frame(width:145,height:145)
+                    }.frame(maxWidth:.infinity)
+                    Text("Форма").font(.footnote.monospaced()).foregroundStyle(palette.muted)
+                    HStack(spacing:8) {
+                        ForEach(AvatarDesign.Form.allCases) { form in
+                            Button { design.form = form } label: {
+                                VStack(spacing:3) {
+                                    AvatarFace(design:AvatarDesign(form:form,tone:design.tone,freckles:design.freckles))
+                                        .frame(width:44,height:44)
+                                    Text(form.title).font(.caption.monospaced()).lineLimit(1).minimumScaleFactor(0.75)
+                                }.frame(maxWidth:.infinity).padding(.vertical,8)
+                                 .background(palette.accent.opacity(design.form == form ? 0.21 : 0.06),
+                                             in:RoundedRectangle(cornerRadius:12))
+                            }.accessibilityAddTraits(design.form == form ? .isSelected : [])
+                        }
+                    }
+                    Text("Цвет").font(.footnote.monospaced()).foregroundStyle(palette.muted)
+                    HStack {
+                        ForEach(AvatarDesign.Tone.allCases) { tone in
+                            Button { design.tone = tone } label: {
+                                Circle().fill(tone.color).frame(width:29,height:29)
+                                    .overlay { if design.tone == tone {
+                                        Image(systemName:"checkmark").font(.caption.bold()).foregroundStyle(.black)
+                                    } }
+                                    .frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())
+                            }.accessibilityLabel(tone.title)
+                             .accessibilityAddTraits(design.tone == tone ? .isSelected : [])
+                        }
+                    }
+                    Toggle("Веснушки",isOn:$design.freckles)
+                    if ARFaceTrackingConfiguration.isSupported {
+                        Button {
+                            cameraRequested.toggle()
+                        } label: {
+                            Label(cameraRequested ? "Выключить камеру" : "Оживить мимикой",
+                                  systemImage:cameraRequested ? "video.slash" : "faceid")
+                        }.buttonStyle(JournalPrimary())
+                        Text(tracker.message ?? (cameraRequested
+                             ? (tracker.hasFace ? "Моргни, улыбнись или поверни голову." : "Посмотри в переднюю камеру.")
+                             : "Камера нужна только для живого предпросмотра. Запись не ведётся."))
+                            .font(.footnote.monospaced()).foregroundStyle(palette.muted)
+                    } else {
+                        Text("Отслеживание мимики недоступно на этом устройстве.")
+                            .font(.footnote.monospaced()).foregroundStyle(palette.muted)
+                    }
+                }.padding(22)
+            }.scrollBounceBehavior(.basedOnSize)
+        }.font(.body.monospaced()).foregroundStyle(palette.ink)
+         .background(palette.sheet.ignoresSafeArea()).presentationBackground(palette.sheet)
+         .buttonStyle(.plain).edgeBack { dismiss() }
+         .task(id:cameraRequested) {
+             guard cameraRequested else { tracker.stop(); return }
+             let permitted = await AVCaptureDevice.requestAccess(for:.video)
+             guard !Task.isCancelled, cameraRequested, scenePhase != .background else { return }
+             if permitted { tracker.start() }
+             else {
+                 tracker.message = "Разреши доступ к камере в настройках iPhone."
+                 cameraRequested = false
+             }
+         }
+         .onChange(of:scenePhase) { _,phase in
+             // The permission prompt can make the scene inactive temporarily.
+             if phase == .background { tracker.stop(); cameraRequested = false }
+         }
+         .onChange(of:tracker.failure) { _,failed in if failed { cameraRequested = false } }
+         .onDisappear { tracker.stop() }
+    }
+}
+
+private final class AvatarTracker: NSObject, ObservableObject, ARSessionDelegate {
+    @Published private(set) var expression = AvatarExpression()
+    @Published private(set) var hasFace = false
+    @Published private(set) var failure = false
+    @Published var message: String?
+    private var activeSession: ARSession?
+    private var reference: simd_float4x4?
+
+    func start() {
+        guard ARFaceTrackingConfiguration.isSupported else { return }
+        stop()
+        failure = false
+        message = nil
+        let session = ARSession()
+        session.delegate = self
+        session.delegateQueue = .main
+        activeSession = session
+        let configuration = ARFaceTrackingConfiguration()
+        configuration.isLightEstimationEnabled = false
+        session.run(configuration,options:[.resetTracking,.removeExistingAnchors])
+    }
+
+    func stop() {
+        activeSession?.pause()
+        activeSession?.delegate = nil
+        activeSession = nil
+        forgetFace()
+    }
+
+    func session(_ session:ARSession,didUpdate anchors:[ARAnchor]) {
+        guard activeSession === session, let face = anchors.compactMap({ $0 as? ARFaceAnchor }).first else { return }
+        guard face.isTracked else { forgetFace(); return }
+        let shapes = face.blendShapes
+        func amount(_ key:ARFaceAnchor.BlendShapeLocation) -> CGFloat {
+            CGFloat(min(1,max(0,shapes[key]?.doubleValue ?? 0)))
+        }
+        if reference == nil { reference = face.transform }
+        let movement = simd_inverse(reference ?? face.transform) * face.transform
+        let angles = simd_quatf(movement).act(SIMD3<Float>(0,0,1))
+        let side = movement.columns.0
+        var next = AvatarExpression()
+        next.blinkLeft = amount(.eyeBlinkRight)
+        next.blinkRight = amount(.eyeBlinkLeft)
+        next.brow = amount(.browInnerUp)
+        next.jaw = amount(.jawOpen)
+        next.smile = (amount(.mouthSmileLeft) + amount(.mouthSmileRight)) / 2
+        next.roll = min(0.4,max(-0.4,Double(atan2(side.y,side.x))))
+        next.yaw = min(0.65,max(-0.65,-Double(angles.x)))
+        next.pitch = min(0.48,max(-0.48,Double(angles.y)))
+        expression = next
+        if !hasFace { hasFace = true }
+    }
+
+    func session(_ session:ARSession,didRemove anchors:[ARAnchor]) {
+        if activeSession === session && anchors.contains(where:{ $0 is ARFaceAnchor }) { forgetFace() }
+    }
+
+    func sessionWasInterrupted(_ session:ARSession) {
+        if activeSession === session { forgetFace() }
+    }
+
+    func session(_ session:ARSession,didFailWithError error:Error) {
+        guard activeSession === session else { return }
+        stop()
+        message = "Камера недоступна. Попробуй включить её ещё раз."
+        failure = true
+    }
+
+    private func forgetFace() {
+        reference = nil
+        if hasFace {
+            hasFace = false
+            expression = AvatarExpression()
+        }
     }
 }

@@ -89,6 +89,25 @@ jobs:
           let legacy = try JSONDecoder().decode(Idea.self,from:JSONEncoder().encode(idea))
           precondition(legacy.additions == nil && legacy.bookmarked == nil)
           SWIFT
+          cat >> "$RUNNER_TEMP/ideas.swift" <<'SWIFT'
+          let testFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+          defer { try? FileManager.default.removeItem(at:testFolder) }
+          let file = testFolder.appendingPathComponent("ideas.json")
+          let snapshot = Notebook(ideas:[noted],balance:23)
+          let legacyBytes = try JSONEncoder().encode(snapshot)
+          let migrated = try NotebookFile.load(legacy:legacyBytes,at:file)
+          precondition(migrated.balance == 23 && migrated.ideas.first?.bookmarked == true)
+          let relaunched = try NotebookFile.load(legacy:Data(),at:file)
+          precondition(relaunched.ideas.first?.additions?.first?.text == "После")
+          try Data("broken".utf8).write(to:file)
+          do {
+              _ = try NotebookFile.load(legacy:legacyBytes,at:file)
+              preconditionFailure("A corrupt store must not be overwritten")
+          } catch {
+              let untouched = try Data(contentsOf:file)
+              precondition(untouched == Data("broken".utf8))
+          }
+          SWIFT
           swift "$RUNNER_TEMP/ideas.swift"
       - name: Build for iPhone
         run: |
