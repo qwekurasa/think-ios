@@ -306,9 +306,6 @@ struct Studio: View {
                     begin()
                 },onHold:openPastPage).frame(maxWidth:330).frame(height:344)
             }
-            Text("запиши идею пока не забыл")
-                .font(.subheadline.monospaced()).foregroundStyle(palette.muted).padding(.horizontal,20)
-                .multilineTextAlignment(.center)
             Button(action:openPastPage) {
                 Label("Из прошлых страниц",systemImage:"book")
                     .font(.footnote.monospaced()).frame(minHeight:44)
@@ -648,7 +645,7 @@ struct Studio: View {
                 if !book.ideas.isEmpty {
                     HStack {
                         Image(systemName:"magnifyingglass").foregroundStyle(palette.muted)
-                        TextField("Поиск по идеям",text:$search,prompt:Text("Поиск по идеям").foregroundStyle(palette.muted)).submitLabel(.search)
+                        TextField("Поиск по идеям",text:$search,prompt:Text("Поиск по идеям").foregroundStyle(palette.muted)).font(.subheadline.monospaced()).submitLabel(.search)
                         if !search.isEmpty { Button { search = "" } label: { Image(systemName:"xmark.circle.fill") }.accessibilityLabel("Очистить поиск") }
                     }.padding(.horizontal,14).frame(minHeight:44).background(palette.card,in:RoundedRectangle(cornerRadius:12))
                 }
@@ -678,7 +675,7 @@ struct Studio: View {
                                 .foregroundStyle(palette.muted).padding(.vertical,24)
                         }
                         ForEach(sections,id:\.key) { section in
-                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.subheadline.weight(.semibold).monospaced()).padding(.top,8)
+                            Text(section.key,format:.dateTime.day().month(.wide).year()).font(.footnote.weight(.semibold).monospaced()).padding(.top,8)
                             ForEach(section.value) { idea in
                                 Button {
                                     detail = idea
@@ -697,7 +694,7 @@ struct Studio: View {
                                                 }
                                             }.font(.caption.monospaced()).foregroundStyle(palette.ink.opacity(0.7))
                                             Text(idea.text.isEmpty ? "Идея без текста" : idea.text)
-                                                .font(.system(.title3,design:.monospaced)).lineLimit(3)
+                                                .font(.body.monospaced()).lineLimit(3)
                                         }.frame(maxWidth:.infinity,alignment:.leading)
                                         Image(systemName:"chevron.right").foregroundStyle(palette.accent)
                                     }.multilineTextAlignment(.leading).padding(16).foregroundStyle(palette.ink)
@@ -1076,11 +1073,12 @@ struct JournalCover: Codable, Equatable {
 
 struct NotebookFace: View {
     let cover: JournalCover
-    @Environment(\.appPalette) private var palette
+    private static let colorContext = CIContext()
     var body: some View {
+        let photo = cover.photo.flatMap { UIImage(data:$0) }
         ZStack(alignment:.leading) {
             JournalCover.colors[cover.shade]
-            if let data = cover.photo, let photo = UIImage(data:data) {
+            if let photo {
                 Image(uiImage:photo).resizable().scaledToFill().frame(width:182,height:258).clipped()
             }
             coverGrain
@@ -1096,13 +1094,35 @@ struct NotebookFace: View {
             LinearGradient(colors:[.white.opacity(0.09),.clear,.black.opacity(0.13)],
                            startPoint:.topLeading,endPoint:.bottomTrailing)
             if !cover.title.isEmpty {
-                Text(cover.title).font(.system(size:23,weight:.semibold,design:.monospaced))
-                    .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).foregroundStyle(palette.ink)
-                    .shadow(color:.black.opacity(0.78),radius:3,y:1)
+                Text(cover.title).font(.system(size:21,weight:.medium,design:.monospaced))
+                    .lineLimit(3).minimumScaleFactor(0.60).multilineTextAlignment(.center).tracking(0.4).foregroundStyle(printedInk(on:photo))
                     .padding(.horizontal,19).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top).padding(.top,40)
             }
         }.frame(width:182,height:258)
-         .clipShape(RoundedRectangle(cornerRadius:5)).overlay { RoundedRectangle(cornerRadius:5).strokeBorder(.white.opacity(0.16)) }
+         .clipped()
+    }
+
+    private func printedInk(on photo:UIImage?) -> Color {
+        let lightInk = Color(white:0.94)
+        guard let photo, let image = CIImage(image:photo), !image.extent.isEmpty else { return lightInk }
+        let bounds = image.extent
+        let scale = max(182 / bounds.width,258 / bounds.height)
+        // Sample behind the title after the centered, aspect-fill cover crop.
+        let sample = CGRect(x:bounds.midX - 66 / scale,y:bounds.midY + 20 / scale,
+                            width:132 / scale,height:67 / scale)
+        let average = CIFilter.areaAverage()
+        average.inputImage = image
+        average.extent = sample
+        guard let color = average.outputImage,
+              let space = CGColorSpace(name:CGColorSpace.sRGB) else { return lightInk }
+        var rgba = [UInt8](repeating:0,count:4)
+        rgba.withUnsafeMutableBytes { pixels in
+            guard let bytes = pixels.baseAddress else { return }
+            Self.colorContext.render(color,toBitmap:bytes,rowBytes:4,bounds:CGRect(x:0,y:0,width:1,height:1),
+                                     format:.RGBA8,colorSpace:space)
+        }
+        let brightness = 0.2126 * Double(rgba[0]) + 0.7152 * Double(rgba[1]) + 0.0722 * Double(rgba[2])
+        return brightness > 145 ? Color(white:0.12) : lightInk
     }
 
     private var coverGrain: some View {
@@ -1770,7 +1790,8 @@ struct JournalModel: UIViewRepresentable {
         controller.artwork = cover
         controller.colors = palette
         let cloth = UIColor(JournalCover.colors[cover.shade])
-        let renderer = ImageRenderer(content:NotebookFace(cover:cover).environment(\.appPalette,palette))
+        let renderer = ImageRenderer(content:NotebookFace(cover:cover))
+        renderer.isOpaque = true
         renderer.scale = 2.5
         controller.rebuild(front:renderer.uiImage,cloth:cloth,hasPhoto:cover.photo != nil,finish:cover.surface)
     }
