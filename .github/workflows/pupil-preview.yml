@@ -1,0 +1,60 @@
+name: Capture current pupil settings
+on:
+  push:
+    branches: [preview-pupil-settings]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture the SwiftUI avatar editor
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Think/ThinkApp.swift')
+          s=p.read_text()
+          old='    @State private var avatarOpen = false'
+          assert old in s
+          s=s.replace(old,'    @State private var avatarOpen = true',1)
+          old='    @State private var page = Page.spark'
+          assert old in s
+          s=s.replace(old,'    @State private var page = Page.settings',1)
+          start=s.index('private struct AvatarEditor:')
+          end=s.index('private final class AvatarTracker',start)
+          part=s[start:end]
+          old='            }.scrollBounceBehavior(.basedOnSize)'
+          assert old in part
+          part=part.replace(old,old+'\n             .defaultScrollAnchor(ProcessInfo.processInfo.arguments.contains("--pupils-bottom") ? .bottom : .top)',1)
+          p.write_text(s[:start]+part+s[end:])
+          PY
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; a=[d for rt,ds in json.load(sys.stdin)["devices"].items() if ".iOS-" in rt for d in ds if d["name"].startswith("iPhone")]; print(next((d for d in a if d["name"]=="iPhone 16 Pro"),a[0])["udid"])')
+          xcrun simctl boot "$DEVICE" || true
+          xcodebuild -quiet -project Think.xcodeproj -target Think -configuration Release -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/sim" build
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl status_bar "$DEVICE" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState unplugged --batteryLevel 100
+          xcrun simctl install "$DEVICE" "$RUNNER_TEMP/sim/Think.app"
+          export APP_CONTAINER
+          APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE" studio.think.ideas data)
+          python3 - <<'PY'
+          import json,os,pathlib,plistlib
+          p=pathlib.Path(os.environ["APP_CONTAINER"])/"Library/Preferences/studio.think.ideas.plist"
+          p.parent.mkdir(parents=True,exist_ok=True)
+          prefs={"think.journal.v1":json.dumps({"title":"Идейник","shade":0}).encode(),"think.palette":"white"}
+          p.write_bytes(plistlib.dumps(prefs))
+          PY
+          xcrun simctl launch "$DEVICE" studio.think.ideas
+          sleep 4
+          xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/pupil-settings.png"
+          xcrun simctl terminate "$DEVICE" studio.think.ideas
+          xcrun simctl launch "$DEVICE" studio.think.ideas --pupils-bottom
+          sleep 4
+          xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/pupil-options.png"
+          for name in pupil-settings pupil-options; do
+            sips -Z 1200 -s format jpeg -s formatOptions 91 "$RUNNER_TEMP/$name.png" --out "$RUNNER_TEMP/$name.jpg"
+            shasum -a 256 "$RUNNER_TEMP/$name.jpg"
+            base64 -i "$RUNNER_TEMP/$name.jpg" | fold -w 2048 | sed "s/^/CAPTURE_$name /"
+          done
