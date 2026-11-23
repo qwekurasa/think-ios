@@ -16,6 +16,27 @@ struct IdeaAddition: Codable, Identifiable {
     let text: String
 }
 
+enum EyePupil: String, Codable, CaseIterable, Identifiable {
+    case round, vortex, double, star
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .round: "Круглый"
+        case .vortex: "Алый вихрь"
+        case .double: "Двойной"
+        case .star: "Звёздный"
+        }
+    }
+    var price: Int {
+        switch self {
+        case .round: 0
+        case .vortex: 12
+        case .double: 16
+        case .star: 20
+        }
+    }
+}
+
 enum CoverFinish: String, Codable, CaseIterable, Identifiable {
     case classic, linen, paper, embossed
 
@@ -65,6 +86,18 @@ struct Notebook: Codable {
     var lastSeen: Date? = nil
 
     var ownedFinishes: Set<CoverFinish>? = nil
+    var ownedPupils: Set<EyePupil>? = nil
+
+    func owns(_ pupil:EyePupil) -> Bool {
+        pupil == .round || ownedPupils?.contains(pupil) == true
+    }
+
+    mutating func unlockPupil(_ pupil:EyePupil) -> Bool {
+        guard !owns(pupil), balance >= pupil.price else { return false }
+        ownedPupils = (ownedPupils ?? []).union([pupil])
+        balance -= pupil.price
+        return true
+    }
 
     func owns(_ finish:CoverFinish) -> Bool {
         finish == .classic || ownedFinishes?.contains(finish) == true
@@ -159,6 +192,8 @@ struct Studio: View {
     @State private var editingCover = false
     @State private var page = Page.spark
     @State private var showRewards = false
+    private enum RewardsDestination { case avatar, cover, ideas }
+    @State private var rewardsDestination: RewardsDestination?
     @State private var confirmReset = false
     @State private var confirmPin = false
     @State private var section: IdeaSection = .active
@@ -248,7 +283,8 @@ struct Studio: View {
             noteVisit()
         }
         .sheet(isPresented:$avatarOpen) {
-            AvatarEditor(initial:profileAvatar ?? AvatarDesign()) { design in
+            AvatarEditor(initial:profileAvatar ?? AvatarDesign(form:.eye),balance:book.balance,
+                         ownedPupils:book.ownedPupils ?? [],unlock:unlockPupil) { design in
                 if let saved = try? JSONEncoder().encode(design) { avatarData = saved }
             }
         }
@@ -283,8 +319,8 @@ struct Studio: View {
         .alert("Из прошлых страниц",isPresented:$noPastPages) {
             Button("Понятно",role:.cancel) {}
         } message: { Text("Здесь будут появляться идеи, записанные в предыдущие дни.") }
-        .sheet(isPresented: $showRewards) {
-            rewards.edgeBack { showRewards = false }.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
+        .sheet(isPresented:$showRewards,onDismiss:openRewardsDestination) {
+            rewards.edgeBack { showRewards = false }.presentationDetents([.large]).presentationDragIndicator(.visible)
         }
         .font(.body.monospaced())
         .foregroundStyle(palette.ink).environment(\.appPalette,palette)
@@ -430,7 +466,7 @@ struct Studio: View {
             }.accessibilityLabel("Звёзды").accessibilityValue(Text(book.balance,format:.number))
             menuTab(.settings, title:"Профиль и настройки") {
                 Group {
-                    if let design = profileAvatar { AvatarFace(design:design).padding(2) }
+                    if let design = profileAvatar { ProfileAvatar(design:design).padding(2) }
                     else { Text(profileInitial).font(.footnote.weight(.medium).monospaced()) }
                 }.lineLimit(1).minimumScaleFactor(0.65)
                     .foregroundStyle(palette.ink)
@@ -465,7 +501,7 @@ struct Studio: View {
                 Button { avatarOpen = true } label: {
                     HStack(spacing:12) {
                         if let design = profileAvatar {
-                            AvatarFace(design:design).frame(width:52,height:52)
+                            ProfileAvatar(design:design).frame(width:52,height:52)
                         } else {
                             Image(systemName:"person.crop.circle").font(.system(size:30))
                                 .frame(width:52,height:52)
@@ -602,6 +638,12 @@ struct Studio: View {
         }.padding(.horizontal, 22).padding(.bottom, 8).foregroundStyle(palette.ink)
          .background(palette.sheet.ignoresSafeArea())
     }
+    private func unlockPupil(_ pupil:EyePupil) -> Bool {
+        var next = book
+        if next.owns(pupil) { return true }
+        return next.unlockPupil(pupil) && persist(next)
+    }
+
     private func unlockFinish(_ finish:CoverFinish) -> Bool {
         var next = book
         if next.owns(finish) { return true }
@@ -962,17 +1004,74 @@ struct Studio: View {
         } message: { Text("Идея останется в активных 30 дней, даже если ты не будешь заходить.") }
     }
 
+    private func goFromRewards(to destination:RewardsDestination) {
+        rewardsDestination = destination
+        showRewards = false
+    }
+
+    private func openRewardsDestination() {
+        defer { rewardsDestination = nil }
+        switch rewardsDestination {
+        case .avatar: page = .settings; avatarOpen = true
+        case .cover: page = .settings; editingCover = true
+        case .ideas: detail = nil; page = .collection
+        case nil: break
+        }
+    }
+
     private var rewards: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Мои звёзды").font(.largeTitle.bold().monospaced())
-                HStack { SparkShape().fill(accent).frame(width: 36, height: 36); Text("\(book.balance)").font(.largeTitle.monospacedDigit().monospaced()) }
-                Text("За запись — от 1 до 3 звёзд. За выполненную идею — ещё \(Notebook.completionReward).")
-                Text("За \(Notebook.pinPrice) звёзд можно закрепить идею на 30 дней.")
-                Text("Лён, матовая бумага и тиснение открываются за звёзды в настройках обложки.")
-                Text("После 7 дней без входа незакреплённые идеи переходят в архив. Оттуда их можно вернуть.").foregroundStyle(palette.muted)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(26)
-        }.padding(.top, 15).presentationBackground(palette.sheet)
+            VStack(alignment:.leading,spacing:20) {
+                HStack {
+                    Text("Звёзды").font(.title2.bold().monospaced())
+                    Spacer()
+                    Button { showRewards = false } label: {
+                        Image(systemName:"xmark").frame(width:44,height:44)
+                    }.accessibilityLabel("Закрыть")
+                }
+                VStack(alignment:.leading,spacing:7) {
+                    Text("Твой баланс").font(.subheadline.monospaced()).foregroundStyle(palette.muted)
+                    HStack(spacing:13) {
+                        SparkShape().fill(accent).frame(width:27,height:27)
+                        Text(book.balance,format:.number).font(.system(.largeTitle,design:.monospaced,weight:.semibold))
+                    }.accessibilityLabel("\(book.balance) звёзд")
+                }.frame(maxWidth:.infinity,alignment:.leading).padding(16)
+                 .background(palette.card,in:RoundedRectangle(cornerRadius:14))
+
+                VStack(alignment:.leading,spacing:11) {
+                    Text("Как заработать").font(.headline.monospaced())
+                    rewardRow("Записать идею","1 ★ за запись, 2 ★ от 80 знаков, 3 ★ от 200.","+1–3 ★")
+                    Divider()
+                    rewardRow("Выполнить идею","Отметь идею выполненной.","+\(Notebook.completionReward) ★")
+                }
+                VStack(alignment:.leading,spacing:11) {
+                    Text("На что потратить").font(.headline.monospaced())
+                    Button { goFromRewards(to:.ideas) } label: {
+                        rewardRow("Закрепить идею","На 30 дней. Закрепление включается внутри идеи.","\(Notebook.pinPrice) ★")
+                    }
+                    Divider()
+                    Button { goFromRewards(to:.cover) } label: {
+                        rewardRow("Фактуры обложки","Лён 8 ★ · Матовая бумага 12 ★ · Тиснение 18 ★","от 8 ★")
+                    }
+                    Divider()
+                    Button { goFromRewards(to:.avatar) } label: {
+                        rewardRow("Зрачки аватара","Алый вихрь 12 ★ · Двойной 16 ★ · Звёздный 20 ★","от 12 ★")
+                    }
+                }
+            }.frame(maxWidth:.infinity,alignment:.leading).padding(24)
+        }.buttonStyle(.plain).presentationBackground(palette.sheet)
+    }
+
+    private func rewardRow(_ title:String,_ detail:String,_ value:String) -> some View {
+        HStack(alignment:.top,spacing:12) {
+            VStack(alignment:.leading,spacing:4) {
+                Text(title).font(.subheadline.weight(.medium).monospaced())
+                Text(detail).font(.caption.monospaced()).foregroundStyle(palette.ink.opacity(0.68))
+            }.frame(maxWidth:.infinity,alignment:.leading)
+            Text(value).font(.caption.weight(.semibold).monospaced()).fixedSize()
+                .padding(.horizontal,8).padding(.vertical,6)
+                .background(palette.card,in:Capsule())
+        }.multilineTextAlignment(.leading).padding(.vertical,5).contentShape(Rectangle())
     }
 }
 
@@ -2214,13 +2313,14 @@ private struct NotebookLoader: View {
 
 private struct AvatarDesign: Codable {
     enum Form: String, CaseIterable, Codable, Identifiable {
-        case moon, cat, bear
+        case moon, cat, bear, eye
         var id: Self { self }
         var title: String {
             switch self {
             case .moon: "Луна"
             case .cat: "Кот"
             case .bear: "Медведь"
+            case .eye: "Глаз"
             }
         }
     }
@@ -2251,6 +2351,8 @@ private struct AvatarDesign: Codable {
     var form: Form = .moon
     var tone: Tone = .pearl
     var freckles = false
+    var pupil: EyePupil? = nil
+    var eyeTexture: EyeTexture? = nil
 }
 
 private struct AvatarExpression {
@@ -2465,9 +2567,25 @@ private struct AvatarEditor: View {
     @StateObject private var tracker = AvatarTracker()
     @State private var cameraRequested = false
     @State private var design: AvatarDesign
+    @State private var confirmPupil = false
+    @State private var unlockedHere: Set<EyePupil> = []
+    let balance: Int
+    let ownedPupils: Set<EyePupil>
+    let unlock: (EyePupil) -> Bool
     let onSave: (AvatarDesign) -> Void
 
-    init(initial:AvatarDesign, onSave:@escaping (AvatarDesign) -> Void) {
+    private var chosenPupil: EyePupil { design.pupil ?? .round }
+    private var canSave: Bool { design.form != .eye || owns(chosenPupil) }
+
+    private func owns(_ pupil:EyePupil) -> Bool {
+        pupil == .round || ownedPupils.contains(pupil) || unlockedHere.contains(pupil)
+    }
+
+    init(initial:AvatarDesign,balance:Int,ownedPupils:Set<EyePupil>,unlock:@escaping (EyePupil) -> Bool,
+         onSave:@escaping (AvatarDesign) -> Void) {
+        self.balance = balance
+        self.ownedPupils = ownedPupils
+        self.unlock = unlock
         _design = State(initialValue:initial)
         self.onSave = onSave
     }
@@ -2478,22 +2596,23 @@ private struct AvatarEditor: View {
                 Button("Отмена") { dismiss() }.frame(minHeight:44)
                 Spacer()
                 Button("Готово") { onSave(design); dismiss() }
-                    .fontWeight(.semibold).frame(minHeight:44)
+                    .fontWeight(.semibold).frame(minHeight:44).disabled(!canSave)
             }.padding(.horizontal,22).padding(.top,12)
             ScrollView {
                 VStack(alignment:.leading,spacing:20) {
                     Text("Твой аватар").font(.title2.bold().monospaced())
-                    ZStack {
-                        Circle().fill(palette.accent.opacity(0.09)).frame(width:152,height:152)
-                        Circle().strokeBorder(palette.accent.opacity(0.18)).frame(width:152,height:152)
-                        AvatarFace(design:design,expression:tracker.expression).frame(width:145,height:145)
-                    }.frame(maxWidth:.infinity)
+                    ProfileAvatar(design:design,expression:tracker.expression,animated:!cameraRequested)
+                        .frame(width:design.form == .eye ? 236 : 160,height:design.form == .eye ? 236 : 160)
+                        .frame(maxWidth:.infinity)
                     Text("Форма").font(.footnote.monospaced()).foregroundStyle(palette.muted)
                     HStack(spacing:8) {
                         ForEach(AvatarDesign.Form.allCases) { form in
-                            Button { design.form = form } label: {
+                            Button {
+                                design.form = form
+                                if form == .eye { cameraRequested = false }
+                            } label: {
                                 VStack(spacing:3) {
-                                    AvatarFace(design:AvatarDesign(form:form,tone:design.tone,freckles:design.freckles))
+                                    ProfileAvatar(design:AvatarDesign(form:form,tone:design.tone,freckles:design.freckles))
                                         .frame(width:44,height:44)
                                     Text(form.title).font(.caption.monospaced()).lineLimit(1).minimumScaleFactor(0.75)
                                 }.frame(maxWidth:.infinity).padding(.vertical,8)
@@ -2502,7 +2621,7 @@ private struct AvatarEditor: View {
                             }.accessibilityAddTraits(design.form == form ? .isSelected : [])
                         }
                     }
-                    Text("Цвет").font(.footnote.monospaced()).foregroundStyle(palette.muted)
+                    Text(design.form == .eye ? "Цвет радужки" : "Цвет").font(.footnote.monospaced()).foregroundStyle(palette.muted)
                     HStack {
                         ForEach(AvatarDesign.Tone.allCases) { tone in
                             Button { design.tone = tone } label: {
@@ -2515,8 +2634,12 @@ private struct AvatarEditor: View {
                              .accessibilityAddTraits(design.tone == tone ? .isSelected : [])
                         }
                     }
-                    Toggle("Веснушки",isOn:$design.freckles)
-                    if ARFaceTrackingConfiguration.isSupported {
+                    if design.form == .eye {
+                        eyeOptions
+                    } else {
+                        Toggle("Веснушки",isOn:$design.freckles)
+                    }
+                    if design.form != .eye && ARFaceTrackingConfiguration.isSupported {
                         Button {
                             cameraRequested.toggle()
                         } label: {
@@ -2527,7 +2650,7 @@ private struct AvatarEditor: View {
                              ? (tracker.hasFace ? "Моргни, улыбнись или поверни голову." : "Посмотри в переднюю камеру.")
                              : "Камера нужна только для живого предпросмотра. Запись не ведётся."))
                             .font(.footnote.monospaced()).foregroundStyle(palette.muted)
-                    } else {
+                    } else if design.form != .eye {
                         Text("Отслеживание мимики недоступно на этом устройстве.")
                             .font(.footnote.monospaced()).foregroundStyle(palette.muted)
                     }
@@ -2536,6 +2659,12 @@ private struct AvatarEditor: View {
         }.font(.body.monospaced()).foregroundStyle(palette.ink)
          .background(palette.sheet.ignoresSafeArea()).presentationBackground(palette.sheet)
          .buttonStyle(.plain).edgeBack { dismiss() }
+         .confirmationDialog("Открыть зрачок?",isPresented:$confirmPupil,titleVisibility:.visible) {
+             Button("Потратить \(chosenPupil.price) ★") {
+                 if unlock(chosenPupil) { unlockedHere.insert(chosenPupil) }
+             }
+             Button("Отмена",role:.cancel) {}
+         }
          .task(id:cameraRequested) {
              guard cameraRequested else { tracker.stop(); return }
              let permitted = await AVCaptureDevice.requestAccess(for:.video)
@@ -2552,6 +2681,48 @@ private struct AvatarEditor: View {
          }
          .onChange(of:tracker.failure) { _,failed in if failed { cameraRequested = false } }
          .onDisappear { tracker.stop() }
+    }
+
+    private var eyeOptions: some View {
+        VStack(alignment:.leading,spacing:12) {
+            Text("Фактура").font(.footnote.monospaced()).foregroundStyle(palette.muted)
+            HStack(spacing:8) {
+                ForEach(EyeTexture.allCases) { texture in
+                    Button { design.eyeTexture = texture } label: {
+                        Text(texture.title).font(.caption.monospaced()).lineLimit(1).minimumScaleFactor(0.75)
+                            .frame(maxWidth:.infinity,minHeight:44)
+                            .background(palette.accent.opacity((design.eyeTexture ?? .fibers) == texture ? 0.19 : 0.06),
+                                        in:RoundedRectangle(cornerRadius:9))
+                    }.accessibilityAddTraits((design.eyeTexture ?? .fibers) == texture ? .isSelected : [])
+                }
+            }
+            HStack {
+                Text("Зрачок")
+                Spacer()
+                Text("\(balance) ★")
+            }.font(.footnote.monospaced()).foregroundStyle(palette.muted)
+            LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:8) {
+                ForEach(EyePupil.allCases) { pupil in
+                    Button { design.pupil = pupil } label: {
+                        VStack(alignment:.leading,spacing:5) {
+                            Text(pupil.title).font(.subheadline.monospaced())
+                            Text(owns(pupil) ? (pupil == .round ? "Бесплатно" : "Открыт") : "\(pupil.price) ★")
+                                .font(.caption.monospaced()).foregroundStyle(palette.muted)
+                        }.frame(maxWidth:.infinity,alignment:.leading).padding(10)
+                         .background(palette.accent.opacity(chosenPupil == pupil ? 0.19 : 0.06),
+                                     in:RoundedRectangle(cornerRadius:9))
+                    }.accessibilityAddTraits(chosenPupil == pupil ? .isSelected : [])
+                }
+            }
+            if !owns(chosenPupil) {
+                Button("Открыть за \(chosenPupil.price) ★") { confirmPupil = true }
+                    .buttonStyle(JournalPrimary()).disabled(balance < chosenPupil.price)
+                if balance < chosenPupil.price {
+                    Text("Не хватает \(chosenPupil.price - balance) ★")
+                        .font(.caption.monospaced()).foregroundStyle(palette.muted)
+                }
+            }
+        }
     }
 }
 
@@ -2628,6 +2799,286 @@ private final class AvatarTracker: NSObject, ObservableObject, ARSessionDelegate
         if hasFace {
             hasFace = false
             expression = AvatarExpression()
+        }
+    }
+}
+
+
+private enum EyeTexture: String, Codable, CaseIterable, Identifiable {
+    case fibers, ripples, shards
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .fibers: "Волокна"
+        case .ripples: "Кольца"
+        case .shards: "Кристалл"
+        }
+    }
+}
+
+private struct ProfileAvatar: View {
+    let design: AvatarDesign
+    var expression = AvatarExpression()
+    var animated = false
+
+    var body: some View {
+        if design.form == .eye {
+            EyeAvatar(tone:design.tone,texture:design.eyeTexture ?? .fibers,
+                      pupil:design.pupil ?? .round,animated:animated)
+        } else {
+            AvatarFace(design:design,expression:expression)
+        }
+    }
+}
+
+private struct EyeAvatar: UIViewRepresentable {
+    let tone: AvatarDesign.Tone
+    let texture: EyeTexture
+    let pupil: EyePupil
+    let animated: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    func makeCoordinator() -> Model { Model() }
+
+    func makeUIView(context:Context) -> SCNView {
+        let view = SCNView()
+        view.scene = context.coordinator.scene
+        view.pointOfView = context.coordinator.camera
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        view.antialiasingMode = .multisampling4X
+        return view
+    }
+
+    func updateUIView(_ view:SCNView,context:Context) {
+        context.coordinator.apply(tone,texture,pupil)
+        let moving = animated && !reduceMotion && scenePhase == .active
+        context.coordinator.setMoving(moving)
+        view.isPlaying = moving
+        view.rendersContinuously = moving
+        view.setNeedsDisplay()
+    }
+
+    static func dismantleUIView(_ view:SCNView,coordinator:Model) {
+        coordinator.setMoving(false)
+        view.isPlaying = false
+    }
+
+    final class Model {
+        let scene = SCNScene()
+        let camera = SCNNode()
+        private let globe = SCNNode()
+        private let iris = SCNMaterial()
+        private var currentKey: String?
+        private static let cache = NSCache<NSString,UIImage>()
+
+        init() {
+            scene.background.contents = UIColor.clear
+            camera.camera = SCNCamera()
+            camera.camera?.usesOrthographicProjection = true
+            camera.camera?.orthographicScale = 1.08
+            camera.position = SCNVector3(0,0,4)
+            scene.rootNode.addChildNode(camera)
+            scene.rootNode.addChildNode(globe)
+
+            let sphere = SCNSphere(radius:1)
+            sphere.segmentCount = 128
+            let shell = SCNMaterial()
+            shell.lightingModel = .physicallyBased
+            shell.diffuse.contents = UIColor(red:0.095,green:0.103,blue:0.12,alpha:1)
+            shell.roughness.contents = 0.32
+            shell.metalness.contents = 0.17
+            shell.normal.contents = UIImage(named:"JournalGrain")
+            shell.normal.intensity = 0.12
+            sphere.firstMaterial = shell
+            globe.addChildNode(SCNNode(geometry:sphere))
+
+            iris.lightingModel = .physicallyBased
+            iris.roughness.contents = 0.43
+            iris.diffuse.mipFilter = .linear
+            iris.diffuse.minificationFilter = .linear
+            let cap = Self.irisGeometry()
+            cap.materials = [iris]
+            globe.addChildNode(SCNNode(geometry:cap))
+
+            let ambient = SCNNode()
+            ambient.light = SCNLight()
+            ambient.light?.type = .ambient
+            ambient.light?.intensity = 540
+            scene.rootNode.addChildNode(ambient)
+            addLight(at:SCNVector3(-3,4,5),intensity:930,color:UIColor(red:0.85,green:0.94,blue:1,alpha:1))
+            addLight(at:SCNVector3(-2,1,-2),intensity:1900,color:UIColor(white:0.76,alpha:1))
+            addLight(at:SCNVector3(4,-2,-2),intensity:1600,color:UIColor(red:0.63,green:0.73,blue:0.88,alpha:1))
+        }
+
+        private func addLight(at position:SCNVector3,intensity:CGFloat,color:UIColor) {
+            let node = SCNNode()
+            let light = SCNLight()
+            light.type = .directional
+            light.intensity = intensity
+            light.color = color
+            node.position = position
+            node.look(at:SCNVector3Zero)
+            node.light = light
+            scene.rootNode.addChildNode(node)
+        }
+
+        func apply(_ tone:AvatarDesign.Tone,_ texture:EyeTexture,_ pupil:EyePupil) {
+            let key = "\(tone.rawValue)-\(texture.rawValue)-\(pupil.rawValue)"
+            guard key != currentKey else { return }
+            currentKey = key
+            let cacheKey = key as NSString
+            if let image = Self.cache.object(forKey:cacheKey) { iris.diffuse.contents = image; return }
+            let image = Self.paintIris(tone:tone,texture:texture,pupil:pupil)
+            Self.cache.totalCostLimit = 15_000_000
+            Self.cache.setObject(image,forKey:cacheKey,cost:768 * 768 * 4)
+            iris.diffuse.contents = image
+        }
+
+        func setMoving(_ moving:Bool) {
+            if !moving {
+                globe.removeAction(forKey:"gaze")
+                globe.eulerAngles = SCNVector3Zero
+                return
+            }
+            guard globe.action(forKey:"gaze") == nil else { return }
+            let looks: [(CGFloat,CGFloat,TimeInterval,TimeInterval)] = [
+                (0.11,-0.58,0.43,0.42), (-0.24,0.39,0.52,0.48), (0.42,0.55,0.40,0.31),
+                (-0.40,-0.39,0.49,0.56), (0.03,0.05,0.59,0.88)
+            ]
+            let moves = looks.flatMap { pitch,yaw,duration,hold -> [SCNAction] in
+                let move = SCNAction.rotateTo(x:pitch,y:yaw,z:0,duration:duration,usesShortestUnitArc:true)
+                move.timingMode = .easeInEaseOut
+                return [move,.wait(duration:hold)]
+            }
+            globe.runAction(.repeatForever(.sequence([.wait(duration:0.55)] + moves)),forKey:"gaze")
+        }
+
+        private static func irisGeometry() -> SCNGeometry {
+            let rings = 28
+            let slices = 96
+            let radius = Float(0.58)
+            var positions: [SCNVector3] = []
+            var normals: [SCNVector3] = []
+            var uv: [CGPoint] = []
+            var triangles: [UInt16] = []
+            for ring in 0...rings {
+                let r = radius * Float(ring) / Float(rings)
+                for slice in 0..<slices {
+                    let angle = Float(slice) * 2 * .pi / Float(slices)
+                    let x = r * cos(angle), y = r * sin(angle)
+                    let normalZ = sqrt(1 - r*r)
+                    positions.append(SCNVector3(x,y,normalZ+0.0025))
+                    normals.append(SCNVector3(x,y,normalZ))
+                    uv.append(CGPoint(x:Double(0.5+x/(2*radius)),y:Double(0.5-y/(2*radius))))
+                    guard ring > 0 else { continue }
+                    let inner = UInt16((ring-1)*slices+slice)
+                    let innerNext = UInt16((ring-1)*slices+(slice+1)%slices)
+                    let outer = UInt16(ring*slices+slice)
+                    let outerNext = UInt16(ring*slices+(slice+1)%slices)
+                    triangles.append(contentsOf:[inner,outer,outerNext,inner,outerNext,innerNext])
+                }
+            }
+            let data = triangles.withUnsafeBufferPointer { Data(buffer:$0) }
+            return SCNGeometry(sources:[SCNGeometrySource(vertices:positions),
+                                        SCNGeometrySource(normals:normals),
+                                        SCNGeometrySource(textureCoordinates:uv)],
+                               elements:[SCNGeometryElement(data:data,primitiveType:.triangles,
+                                   primitiveCount:triangles.count/3,bytesPerIndex:MemoryLayout<UInt16>.size)])
+        }
+
+        private static func paintIris(tone:AvatarDesign.Tone,texture:EyeTexture,pupil:EyePupil) -> UIImage {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let edge: CGFloat = 768
+            return UIGraphicsImageRenderer(size:CGSize(width:edge,height:edge),format:format).image { renderer in
+                let ctx = renderer.cgContext
+                let center = CGPoint(x:edge/2,y:edge/2)
+                let radius = edge/2
+                var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+                UIColor(tone.color).getRed(&red,green:&green,blue:&blue,alpha:&alpha)
+                if pupil == .vortex {
+                    red = 0.57 + red*0.26
+                    green *= 0.24
+                    blue *= 0.30
+                }
+                func tint(_ gain:CGFloat,_ opacity:CGFloat = 1) -> CGColor {
+                    UIColor(red:min(1,red*gain),green:min(1,green*gain),blue:min(1,blue*gain),alpha:opacity).cgColor
+                }
+                let shell = UIColor(red:0.095,green:0.103,blue:0.12,alpha:1).cgColor
+                ctx.setFillColor(shell)
+                ctx.fill(CGRect(x:0,y:0,width:edge,height:edge))
+                if let gradient = CGGradient(colorsSpace:CGColorSpaceCreateDeviceRGB(),
+                                             colors:[tint(0.21),tint(0.45),tint(0.63),tint(0.20),shell] as CFArray,
+                                             locations:[0,0.31,0.61,0.88,1]) {
+                    ctx.drawRadialGradient(gradient,startCenter:center,startRadius:0,endCenter:center,endRadius:radius,
+                                           options:[.drawsAfterEndLocation])
+                }
+                func point(_ angle:CGFloat,_ distance:CGFloat) -> CGPoint {
+                    CGPoint(x:center.x+cos(angle)*distance*radius,y:center.y+sin(angle)*distance*radius)
+                }
+                var seed: UInt32 = 683115
+                func noise() -> CGFloat {
+                    seed = 1664525 &* seed &+ 1013904223
+                    return CGFloat(seed >> 8) / 16777216
+                }
+                for i in 0..<2360 {
+                    let angle = CGFloat(i) * 2 * .pi / 2360 + noise()*0.013
+                    let r0 = 0.16+noise()*0.51
+                    let r1 = min(0.93,r0+0.13+noise()*0.41)
+                    let bend = (noise()-0.5) * (texture == .shards ? 0.16 : 0.062)
+                    ctx.setStrokeColor(i.isMultiple(of:4) ? UIColor.black.withAlphaComponent(0.23).cgColor
+                                                          : tint(0.82+noise()*0.42,0.07+noise()*0.22))
+                    ctx.setLineWidth(0.4+noise()*(texture == .shards ? 2.0 : 1.1))
+                    ctx.move(to:point(angle,r0))
+                    if texture == .shards { ctx.addLine(to:point(angle+bend,r1)) }
+                    else { ctx.addQuadCurve(to:point(angle+bend,r1),control:point(angle-bend,r0+(r1-r0)*0.54)) }
+                    ctx.strokePath()
+                }
+                for ring in 0..<(texture == .ripples ? 12 : 3) {
+                    let r = radius*(texture == .ripples ? 0.40+CGFloat(ring)*0.041 : 0.48+CGFloat(ring)*0.18)
+                    ctx.setLineWidth(ring.isMultiple(of:2) ? 1.9 : 0.7)
+                    ctx.setStrokeColor(tint(0.79,texture == .ripples ? 0.24 : 0.13))
+                    ctx.strokeEllipse(in:CGRect(x:center.x-r,y:center.y-r,width:2*r,height:2*r))
+                }
+                ctx.setFillColor(UIColor(white:0.007,alpha:1).cgColor)
+                func pupilOval(x:CGFloat,y:CGFloat,rx:CGFloat,ry:CGFloat) {
+                    ctx.fillEllipse(in:CGRect(x:center.x+(x-rx)*radius,y:center.y+(y-ry)*radius,
+                                             width:2*rx*radius,height:2*ry*radius))
+                }
+                switch pupil {
+                case .round: pupilOval(x:0,y:0,rx:0.30,ry:0.30)
+                case .double:
+                    pupilOval(x:-0.24,y:0,rx:0.18,ry:0.25)
+                    pupilOval(x:0.24,y:0,rx:0.18,ry:0.25)
+                case .star:
+                    let path = CGMutablePath()
+                    for n in 0..<8 {
+                        let a = CGFloat(n) * .pi/4 - .pi/2
+                        let p = point(a,n.isMultiple(of:2) ? 0.51 : 0.16)
+                        if n == 0 { path.move(to:p) } else { path.addLine(to:p) }
+                    }
+                    path.closeSubpath()
+                    ctx.addPath(path)
+                    ctx.fillPath()
+                case .vortex:
+                    pupilOval(x:0,y:0,rx:0.25,ry:0.25)
+                    for lane in 0..<3 {
+                        let a = CGFloat(lane) * 2 * .pi/3
+                        let path = CGMutablePath()
+                        path.move(to:point(a-0.76,0.79))
+                        path.addQuadCurve(to:point(a+0.39,0.49),control:point(a+0.39,0.95))
+                        path.addQuadCurve(to:point(a-0.76,0.79),control:point(a+0.11,0.69))
+                        path.closeSubpath()
+                        ctx.addPath(path)
+                        ctx.fillPath()
+                    }
+                }
+            }
         }
     }
 }

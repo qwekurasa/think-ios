@@ -90,6 +90,13 @@ jobs:
           precondition(legacy.additions == nil && legacy.bookmarked == nil)
           SWIFT
           cat >> "$RUNNER_TEMP/ideas.swift" <<'SWIFT'
+          var pupils = Notebook(balance:28)
+          precondition(pupils.owns(.round))
+          precondition(pupils.unlockPupil(.vortex) && pupils.balance == 16)
+          precondition(!pupils.unlockPupil(.vortex) && pupils.balance == 16)
+          precondition(!pupils.unlockPupil(.star))
+          let savedPupils = try JSONDecoder().decode(Notebook.self,from:JSONEncoder().encode(pupils))
+          precondition(savedPupils.owns(.vortex) && !savedPupils.owns(.double))
           let testFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
           defer { try? FileManager.default.removeItem(at:testFolder) }
           let file = testFolder.appendingPathComponent("ideas.json")
