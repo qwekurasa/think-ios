@@ -427,7 +427,7 @@ struct Studio: View {
                 JournalModel(cover:cover,onTap:{
                     UIImpactFeedbackGenerator(style:.soft).impactOccurred()
                     begin()
-                },onHold:openPastPage).frame(maxWidth:330).frame(height:344)
+                },onHold:openPastPage,autoRotate:true).frame(maxWidth:330).frame(height:344)
             }
             Button(action:openPastPage) {
                 Label("Из прошлых страниц",systemImage:"book")
@@ -466,7 +466,7 @@ struct Studio: View {
             }.accessibilityLabel("Звёзды").accessibilityValue(Text(book.balance,format:.number))
             menuTab(.settings, title:"Профиль и настройки") {
                 Group {
-                    if let design = profileAvatar { ProfileAvatar(design:design).padding(2) }
+                    if let design = profileAvatar { ProfileAvatar(design:design,animated:true).padding(2) }
                     else { Text(profileInitial).font(.footnote.weight(.medium).monospaced()) }
                 }.lineLimit(1).minimumScaleFactor(0.65)
                     .foregroundStyle(palette.ink)
@@ -2030,6 +2030,8 @@ struct JournalModel: UIViewRepresentable {
     let cover: JournalCover
     var onTap: (() -> Void)? = nil
     var onHold: (() -> Void)? = nil
+    var autoRotate = false
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduced
 
@@ -2093,6 +2095,9 @@ struct JournalModel: UIViewRepresentable {
         view.accessibilityTraits = onTap == nil ? [] : [.button]
         view.accessibilityLabel = onTap == nil ? "Предпросмотр дневника" : "Дневник, записать идею"
         controller.reduced = reduced
+        let moving = autoRotate && !reduced && scenePhase == .active
+        controller.setAutoRotate(moving)
+        view.rendersContinuously = moving
         (view as? AccessibleBookView)?.openIdea = onTap
         view.accessibilityCustomActions = onHold.map { action in
             [UIAccessibilityCustomAction(name:"Из прошлых страниц",actionHandler:{ _ in action(); return true })]
@@ -2107,6 +2112,11 @@ struct JournalModel: UIViewRepresentable {
         controller.rebuild(front:renderer.uiImage,cloth:cloth,hasPhoto:cover.photo != nil,finish:cover.surface)
     }
 
+    static func dismantleUIView(_ view:SCNView,coordinator:Interaction) {
+        coordinator.setAutoRotate(false)
+        view.rendersContinuously = false
+    }
+
     final class AccessibleBookView: SCNView {
         var openIdea: (() -> Void)?
         override func accessibilityActivate() -> Bool { openIdea?(); return true }
@@ -2116,6 +2126,8 @@ struct JournalModel: UIViewRepresentable {
         let book = SCNNode()
         private let tilt = SCNNode()
         private var start = CGPoint.zero
+        private var autoRotate = false
+        private var dragging = false
         private var yaw: Float = -0.43
         private var pitch: Float = 0.13
         var artwork: JournalCover?
@@ -2195,6 +2207,32 @@ struct JournalModel: UIViewRepresentable {
             return material
         }
 
+        func setAutoRotate(_ enabled:Bool) {
+            guard enabled != autoRotate else { return }
+            autoRotate = enabled
+            if enabled { resumeRotation() }
+            else if !dragging { stopRotationAtCurrentAngle() }
+        }
+
+        private func stopRotationAtCurrentAngle() {
+            let transform = book.presentation.transform
+            yaw = atan2f(-transform.m13,transform.m11)
+            book.removeAction(forKey:"rotation")
+            book.eulerAngles.y = yaw
+        }
+
+        private func resumeRotation(after spin:SCNAction? = nil) {
+            guard !dragging else { return }
+            let turn = SCNAction.rotateBy(x:0,y:.pi*2,z:0,duration:28)
+            let idle = SCNAction.repeatForever(turn)
+            if autoRotate {
+                let wait = SCNAction.wait(duration:0.65)
+                book.runAction(.sequence((spin.map { [$0] } ?? []) + [wait,idle]),forKey:"rotation")
+            } else if let spin {
+                book.runAction(spin,forKey:"rotation")
+            }
+        }
+
         @objc func open() { openIdea?() }
 
         @objc func hold(_ gesture:UILongPressGestureRecognizer) {
@@ -2205,23 +2243,27 @@ struct JournalModel: UIViewRepresentable {
             let delta = gesture.translation(in:gesture.view)
             switch gesture.state {
             case .began:
-                let transform = book.presentation.transform
-                let presented = atan2f(-transform.m13,transform.m11)
-                book.removeAllActions()
-                book.eulerAngles = SCNVector3(0,presented,0)
-                start = CGPoint(x:CGFloat(presented),y:CGFloat(tilt.eulerAngles.x))
+                dragging = true
+                stopRotationAtCurrentAngle()
+                start = CGPoint(x:CGFloat(yaw),y:CGFloat(tilt.eulerAngles.x))
             case .changed,.ended:
                 yaw = Float(start.x + delta.x*0.012)
                 pitch = min(0.78,max(-0.78,Float(start.y)+Float(delta.y)*0.007))
                 book.eulerAngles.y = yaw
                 tilt.eulerAngles.x = pitch
-                if gesture.state == .ended && !reduced {
-                    let velocity = gesture.velocity(in:gesture.view).x
-                    let spin = min(1.5,max(-1.5,velocity*0.0017))
-                    let action = SCNAction.rotateBy(x:0,y:spin,z:0,duration:0.54)
-                    action.timingMode = .easeOut
-                    book.runAction(action)
+                if gesture.state == .ended {
+                    dragging = false
+                    if !reduced {
+                        let velocity = gesture.velocity(in:gesture.view).x
+                        let spin = min(1.5,max(-1.5,velocity*0.0017))
+                        let action = SCNAction.rotateBy(x:0,y:spin,z:0,duration:0.54)
+                        action.timingMode = .easeOut
+                        resumeRotation(after:action)
+                    }
                 }
+            case .failed,.cancelled:
+                dragging = false
+                resumeRotation()
             default: break
             }
         }
@@ -2850,6 +2892,7 @@ private struct EyeAvatar: UIViewRepresentable {
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
         view.antialiasingMode = .multisampling4X
+        view.preferredFramesPerSecond = 30
         return view
     }
 
@@ -2885,19 +2928,19 @@ private struct EyeAvatar: UIViewRepresentable {
             scene.rootNode.addChildNode(globe)
 
             let sphere = SCNSphere(radius:1)
-            sphere.segmentCount = 128
+            sphere.segmentCount = 144
             let shell = SCNMaterial()
             shell.lightingModel = .physicallyBased
-            shell.diffuse.contents = UIColor(red:0.095,green:0.103,blue:0.12,alpha:1)
-            shell.roughness.contents = 0.32
-            shell.metalness.contents = 0.17
-            shell.normal.contents = UIImage(named:"JournalGrain")
-            shell.normal.intensity = 0.12
+            shell.diffuse.contents = Self.shellColor
+            shell.roughness.contents = 0.94
+            shell.metalness.contents = 0.0
+            shell.shaderModifiers = [.fragment:Self.scleraShading]
             sphere.firstMaterial = shell
             globe.addChildNode(SCNNode(geometry:sphere))
 
             iris.lightingModel = .physicallyBased
-            iris.roughness.contents = 0.43
+            iris.roughness.contents = 0.89
+            iris.specular.contents = UIColor(white:0.10,alpha:1)
             iris.diffuse.mipFilter = .linear
             iris.diffuse.minificationFilter = .linear
             let cap = Self.irisGeometry()
@@ -2907,12 +2950,27 @@ private struct EyeAvatar: UIViewRepresentable {
             let ambient = SCNNode()
             ambient.light = SCNLight()
             ambient.light?.type = .ambient
-            ambient.light?.intensity = 540
+            ambient.light?.intensity = 510
             scene.rootNode.addChildNode(ambient)
-            addLight(at:SCNVector3(-3,4,5),intensity:930,color:UIColor(red:0.85,green:0.94,blue:1,alpha:1))
-            addLight(at:SCNVector3(-2,1,-2),intensity:1900,color:UIColor(white:0.76,alpha:1))
-            addLight(at:SCNVector3(4,-2,-2),intensity:1600,color:UIColor(red:0.63,green:0.73,blue:0.88,alpha:1))
+            addLight(at:SCNVector3(-2,4,5),intensity:570,color:UIColor(white:0.92,alpha:1))
+            addLight(at:SCNVector3(4,-2,4),intensity:190,color:UIColor(white:0.77,alpha:1))
         }
+
+        private static let shellColor = UIColor(red:0.113,green:0.115,blue:0.119,alpha:1)
+
+        // Broad cloudy detail, very fine grain and light scattering at grazing angles.
+        private static let scleraShading = """
+        #pragma body
+        float3 n = normalize(_surface.normal);
+        float grazing = pow(1.0 - clamp(abs(n.z), 0.0, 1.0), 3.9);
+        float grain = fract(sin(dot(_surface.position.xy, float2(784.2, 398.6))) * 18471.39);
+        float cloud = sin(12.1 * n.x + 8.7 * n.y + sin(9.1 * n.y))
+                    * sin(11.7 * n.y - 17.7 * n.x + 2.0 * n.z);
+        float strand = pow(0.5 + 0.5 * sin(33.0 * n.x + 22.0 * n.y + 3.1 * sin(8.0 * n.y)), 22.0);
+        _output.color.rgb = max(float3(0.0), _output.color.rgb
+            + float3(0.016 * cloud + 0.018 * (grain - 0.5) - 0.018 * strand
+                       + grazing * (0.28 + 0.15 * grain)));
+        """
 
         private func addLight(at position:SCNVector3,intensity:CGFloat,color:UIColor) {
             let node = SCNNode()
@@ -2934,7 +2992,7 @@ private struct EyeAvatar: UIViewRepresentable {
             if let image = Self.cache.object(forKey:cacheKey) { iris.diffuse.contents = image; return }
             let image = Self.paintIris(tone:tone,texture:texture,pupil:pupil)
             Self.cache.totalCostLimit = 15_000_000
-            Self.cache.setObject(image,forKey:cacheKey,cost:768 * 768 * 4)
+            Self.cache.setObject(image,forKey:cacheKey,cost:1024 * 1024 * 4)
             iris.diffuse.contents = image
         }
 
@@ -2960,7 +3018,7 @@ private struct EyeAvatar: UIViewRepresentable {
         private static func irisGeometry() -> SCNGeometry {
             let rings = 28
             let slices = 96
-            let radius = Float(0.58)
+            let radius = Float(0.555)
             var positions: [SCNVector3] = []
             var normals: [SCNVector3] = []
             var uv: [CGPoint] = []
@@ -2994,7 +3052,7 @@ private struct EyeAvatar: UIViewRepresentable {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             format.opaque = true
-            let edge: CGFloat = 768
+            let edge: CGFloat = 1024
             return UIGraphicsImageRenderer(size:CGSize(width:edge,height:edge),format:format).image { renderer in
                 let ctx = renderer.cgContext
                 let center = CGPoint(x:edge/2,y:edge/2)
@@ -3009,12 +3067,12 @@ private struct EyeAvatar: UIViewRepresentable {
                 func tint(_ gain:CGFloat,_ opacity:CGFloat = 1) -> CGColor {
                     UIColor(red:min(1,red*gain),green:min(1,green*gain),blue:min(1,blue*gain),alpha:opacity).cgColor
                 }
-                let shell = UIColor(red:0.095,green:0.103,blue:0.12,alpha:1).cgColor
+                let shell = shellColor.cgColor
                 ctx.setFillColor(shell)
                 ctx.fill(CGRect(x:0,y:0,width:edge,height:edge))
                 if let gradient = CGGradient(colorsSpace:CGColorSpaceCreateDeviceRGB(),
-                                             colors:[tint(0.21),tint(0.45),tint(0.63),tint(0.20),shell] as CFArray,
-                                             locations:[0,0.31,0.61,0.88,1]) {
+                                             colors:[tint(0.10),tint(0.24),tint(0.20),tint(0.28),tint(0.105),shell] as CFArray,
+                                             locations:[0,0.32,0.48,0.69,0.91,1]) {
                     ctx.drawRadialGradient(gradient,startCenter:center,startRadius:0,endCenter:center,endRadius:radius,
                                            options:[.drawsAfterEndLocation])
                 }
@@ -3026,23 +3084,36 @@ private struct EyeAvatar: UIViewRepresentable {
                     seed = 1664525 &* seed &+ 1013904223
                     return CGFloat(seed >> 8) / 16777216
                 }
-                for i in 0..<2360 {
-                    let angle = CGFloat(i) * 2 * .pi / 2360 + noise()*0.013
-                    let r0 = 0.16+noise()*0.51
-                    let r1 = min(0.93,r0+0.13+noise()*0.41)
-                    let bend = (noise()-0.5) * (texture == .shards ? 0.16 : 0.062)
-                    ctx.setStrokeColor(i.isMultiple(of:4) ? UIColor.black.withAlphaComponent(0.23).cgColor
-                                                          : tint(0.82+noise()*0.42,0.07+noise()*0.22))
-                    ctx.setLineWidth(0.4+noise()*(texture == .shards ? 2.0 : 1.1))
+                for i in 0..<3400 {
+                    let angle = CGFloat(i) * 2 * .pi / 3400 + noise()*0.018
+                    let bundle = 0.5 + 0.5 * sin(41*angle + 1.9*sin(13*angle))
+                    let r0 = 0.22 + noise()*0.59
+                    let r1 = min(0.94,r0+0.065+noise()*0.34)
+                    let bend = (noise()-0.5) * (texture == .shards ? 0.22 : 0.11)
+                    ctx.setStrokeColor(i.isMultiple(of:4) ? UIColor.black.withAlphaComponent(0.12+noise()*0.20).cgColor
+                                                          : tint(0.34+noise()*0.33,0.08+bundle*0.13))
+                    ctx.setLineWidth(0.40+noise()*(texture == .shards ? 2.4 : 1.6))
                     ctx.move(to:point(angle,r0))
                     if texture == .shards { ctx.addLine(to:point(angle+bend,r1)) }
                     else { ctx.addQuadCurve(to:point(angle+bend,r1),control:point(angle-bend,r0+(r1-r0)*0.54)) }
                     ctx.strokePath()
                 }
+                for index in 0..<170 {
+                    let angle = CGFloat(index) * 2 * .pi / 170 + noise()*0.07
+                    let collar = 0.43 + 0.035*sin(angle*9) + 0.025*sin(angle*21)
+                    let spot = point(angle,collar + (noise()-0.5)*0.09)
+                    let length = 1.5 + noise()*12
+                    ctx.saveGState()
+                    ctx.translateBy(x:spot.x,y:spot.y)
+                    ctx.rotate(by:angle + (noise()-0.5)*0.75)
+                    ctx.setFillColor(UIColor.black.withAlphaComponent(0.07+noise()*0.19).cgColor)
+                    ctx.fillEllipse(in:CGRect(x:-length/2,y:-1,width:length,height:2+noise()*3))
+                    ctx.restoreGState()
+                }
                 for ring in 0..<(texture == .ripples ? 12 : 3) {
                     let r = radius*(texture == .ripples ? 0.40+CGFloat(ring)*0.041 : 0.48+CGFloat(ring)*0.18)
                     ctx.setLineWidth(ring.isMultiple(of:2) ? 1.9 : 0.7)
-                    ctx.setStrokeColor(tint(0.79,texture == .ripples ? 0.24 : 0.13))
+                    ctx.setStrokeColor(tint(0.47,texture == .ripples ? 0.21 : 0.08))
                     ctx.strokeEllipse(in:CGRect(x:center.x-r,y:center.y-r,width:2*r,height:2*r))
                 }
                 ctx.setFillColor(UIColor(white:0.007,alpha:1).cgColor)
