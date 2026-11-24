@@ -2970,8 +2970,8 @@ private struct EyeAvatar: UIViewRepresentable {
                     * sin(11.7 * n.y - 17.7 * n.x + 2.0 * n.z);
         float strand = pow(0.5 + 0.5 * sin(33.0 * n.x + 22.0 * n.y + 3.1 * sin(8.0 * n.y)), 22.0);
         _output.color.rgb = max(float3(0.0), _output.color.rgb
-            + float3(0.016 * cloud + 0.018 * (grain - 0.5) - 0.018 * strand
-                       + grazing * (0.28 + 0.15 * grain)));
+            + float3(0.0019 * cloud + 0.0040 * (grain - 0.5) - 0.0016 * strand
+                       + grazing * (0.19 + 0.075 * grain)));
         """
 
         private func addLight(at position:SCNVector3,intensity:CGFloat,color:UIColor) {
