@@ -10,6 +10,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 351f4603d601b11642afcf6a09829d4eb94b356b
       - name: Capture the SwiftUI avatar editor
         run: |
           set -euo pipefail
@@ -47,14 +49,8 @@ jobs:
           p.write_bytes(plistlib.dumps(prefs))
           PY
           xcrun simctl launch "$DEVICE" studio.think.ideas
-          sleep 4
+          sleep 5
           xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/pupil-settings.png"
-          xcrun simctl terminate "$DEVICE" studio.think.ideas
-          xcrun simctl launch "$DEVICE" studio.think.ideas --pupils-bottom
-          sleep 4
-          xcrun simctl io "$DEVICE" screenshot "$RUNNER_TEMP/pupil-options.png"
-          for name in pupil-settings pupil-options; do
-            sips -Z 1200 -s format jpeg -s formatOptions 91 "$RUNNER_TEMP/$name.png" --out "$RUNNER_TEMP/$name.jpg"
-            shasum -a 256 "$RUNNER_TEMP/$name.jpg"
-            base64 -i "$RUNNER_TEMP/$name.jpg" | fold -w 2048 | sed "s/^/CAPTURE_$name /"
-          done
+          sips -Z 1200 -s format jpeg -s formatOptions 90 "$RUNNER_TEMP/pupil-settings.png" --out "$RUNNER_TEMP/pupil-settings.jpg"
+          shasum -a 256 "$RUNNER_TEMP/pupil-settings.jpg"
+          base64 -i "$RUNNER_TEMP/pupil-settings.jpg" | fold -w 2048 | sed 's/^/CAPTURE_EYE /'
