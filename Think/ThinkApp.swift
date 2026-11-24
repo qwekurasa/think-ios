@@ -2098,6 +2098,7 @@ struct JournalModel: UIViewRepresentable {
         let moving = autoRotate && !reduced && scenePhase == .active
         controller.setAutoRotate(moving)
         view.rendersContinuously = moving
+        if autoRotate { view.isPlaying = moving }
         (view as? AccessibleBookView)?.openIdea = onTap
         view.accessibilityCustomActions = onHold.map { action in
             [UIAccessibilityCustomAction(name:"Из прошлых страниц",actionHandler:{ _ in action(); return true })]
@@ -2115,6 +2116,7 @@ struct JournalModel: UIViewRepresentable {
     static func dismantleUIView(_ view:SCNView,coordinator:Interaction) {
         coordinator.setAutoRotate(false)
         view.rendersContinuously = false
+        view.isPlaying = false
     }
 
     final class AccessibleBookView: SCNView {
