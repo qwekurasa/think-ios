@@ -813,32 +813,38 @@ struct Studio: View {
                 }
                 ideaActions(idea)
             } else {
-                HStack {
-                Button {
-                    calendarDay = dayFilter ?? yearFilter.flatMap { year in
-                        Calendar.current.date(from:DateComponents(year:year,month:1,day:1))
-                    } ?? Date()
-                    calendarOpen = true
-                } label: {
-                    Label("Календарь",systemImage:"calendar")
-                        .font(.subheadline.weight(.medium).monospaced())
-                        .frame(minHeight:44)
-                }.foregroundStyle(palette.accent).frame(maxWidth:.infinity)
+                let canSelect = !sections.isEmpty && !selectingIdeas
+                HStack(spacing:8) {
+                    Color.clear.frame(width:canSelect ? 96 : 44,height:44)
+                        .allowsHitTesting(false).accessibilityHidden(true)
                     Button {
-                        bookmarksOnly.toggle()
-                        dayFilter = nil
-                        yearFilter = nil
+                        calendarDay = dayFilter ?? yearFilter.flatMap { year in
+                            Calendar.current.date(from:DateComponents(year:year,month:1,day:1))
+                        } ?? Date()
+                        calendarOpen = true
                     } label: {
-                        Image(systemName:bookmarksOnly ? "bookmark.fill" : "bookmark")
-                            .frame(width:44,height:44)
-                            .background(palette.card,in:RoundedRectangle(cornerRadius:9))
-                    }.accessibilityLabel(bookmarksOnly ? "Показать все идеи" : "Показать закладки")
-                     .accessibilityAddTraits(bookmarksOnly ? .isSelected : [])
-                    if !sections.isEmpty && !selectingIdeas {
-                        Button { selectingIdeas = true } label: {
-                            Image(systemName:"checkmark.circle").frame(width:44,height:44)
+                        Label("Календарь",systemImage:"calendar")
+                            .font(.subheadline.weight(.medium).monospaced())
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(minHeight:44)
+                    }.foregroundStyle(palette.accent).frame(maxWidth:.infinity)
+                    HStack(spacing:8) {
+                        Button {
+                            bookmarksOnly.toggle()
+                            dayFilter = nil
+                            yearFilter = nil
+                        } label: {
+                            Image(systemName:bookmarksOnly ? "bookmark.fill" : "bookmark")
+                                .frame(width:44,height:44)
                                 .background(palette.card,in:RoundedRectangle(cornerRadius:9))
-                        }.accessibilityLabel("Выбрать идеи")
+                        }.accessibilityLabel(bookmarksOnly ? "Показать все идеи" : "Показать закладки")
+                         .accessibilityAddTraits(bookmarksOnly ? .isSelected : [])
+                        if canSelect {
+                            Button { selectingIdeas = true } label: {
+                                Image(systemName:"checkmark.circle").frame(width:44,height:44)
+                                    .background(palette.card,in:RoundedRectangle(cornerRadius:9))
+                            }.accessibilityLabel("Выбрать идеи")
+                        }
                     }
                 }
                 if let dayFilter {
